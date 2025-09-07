@@ -1,0 +1,11 @@
+pandas
+numpy
+pyyaml
+pydantic
+scipy
+plotly
+
+[dev]
+pytest
+black
+isort

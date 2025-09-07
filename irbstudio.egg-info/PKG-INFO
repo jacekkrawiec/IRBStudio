@@ -1,0 +1,31 @@
+Metadata-Version: 2.4
+Name: irbstudio
+Version: 0.1.0
+Summary: An AIRB Scenario & Impact Analysis Engine
+Home-page: 
+Author: Your Name
+Author-email: your.email@example.com
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: pyyaml
+Requires-Dist: pydantic
+Requires-Dist: scipy
+Requires-Dist: plotly
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
+Dynamic: author
+Dynamic: author-email
+Dynamic: license-file
+Dynamic: requires-python
+
+# IRBStudio
+
+A Python package for ... (description to be completed later).

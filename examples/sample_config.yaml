@@ -1,0 +1,5 @@
+# Minimal valid config for IRBStudio
+scenarios:
+  - name: "Baseline"
+    pd_auc: 0.75
+    description: "A sample baseline scenario"

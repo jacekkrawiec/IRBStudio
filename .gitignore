@@ -1,0 +1,31 @@
+# Logs
+logs/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Build output
+dist/
+build/
+out/
+
+# Environment files
+.env
+.env.*
+.venv/
+
+# Misc
+*.swp
+*.bak
+*.tmp
+
+# Internal notes
+project_plan.md

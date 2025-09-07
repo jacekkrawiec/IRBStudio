@@ -1,0 +1,4 @@
+# Invalid config - bad AUC value
+scenarios:
+  - name: "Bad AUC"
+    pd_auc: 1.5
