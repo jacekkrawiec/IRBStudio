@@ -17,6 +17,10 @@ Requires-Dist: pyyaml
 Requires-Dist: pydantic
 Requires-Dist: scipy
 Requires-Dist: plotly
+Requires-Dist: scikit-learn
+Requires-Dist: statsmodels
+Requires-Dist: jinja2
+Requires-Dist: matplotlib
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: black; extra == "dev"
@@ -28,4 +32,121 @@ Dynamic: requires-python
 
 # IRBStudio
 
-A Python package for ... (description to be completed later).
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
+
+**IRBStudio** is a Python package designed to be a comprehensive **AIRB Scenario & Impact Analysis Engine**. It empowers a bank's internal risk analysts and model owners to run sophisticated "what-if" scenarios locally, simulating the impact of modeling choices and parameter assumptions on Risk-Weighted Assets (RWA) and capital requirements.
+
+The core goal is to provide a clear, quantitative basis for strategic decisions, such as understanding the capital impact of improving a PD model's predictive power (AUC).
+
+---
+
+## Core Features
+
+- **Declarative Scenario Definition**: Configure all aspects of your analysis—data mapping, regulatory parameters, and simulation scenarios—in a single, human-readable YAML file.
+- **Robust Data Handling**: Load portfolio data from CSV or Parquet files and seamlessly map your column names to the canonical fields required for analysis.
+- **Extensible Architecture**: The package is built with a modular design to support future extensions, such as new risk parameters (LGD, EAD), asset classes, and analysis types.
+- **Local First**: All data processing happens locally on your machine, ensuring your sensitive portfolio data remains secure.
+
+## Project Status (Alpha)
+
+This project is in the **alpha stage of development**. The foundational modules for configuration and data loading are complete, but the core simulation engine is still under construction.
+
+### Implemented Features:
+- ✅ **Configuration**: Load and validate analysis parameters from a YAML file using Pydantic schemas.
+- ✅ **Data Loading**: Ingest portfolio data from `.csv` and `.parquet` files.
+- ✅ **Column Mapping**: Rename user-defined columns to a standardized, canonical format.
+- ✅ **Validation**: Robust validation for configuration and data, with clear error messages.
+- ✅ **Logging**: Centralized logging for better traceability.
+
+### Roadmap
+The immediate focus is on building the core simulation and calculation engine for the Minimum Viable Product (MVP).
+
+- **Feature 2: Core Simulation & Calculation Engine**
+    - **PD Simulation**: Implement the core logic to simulate a PD distribution based on a target AUC.
+    - **RWA Calculators**: Build the initial AIRB and SA RWA calculators for a mortgage portfolio.
+- **Feature 3: End-to-End Pipeline & Reporting**
+    - **Orchestration**: Wire all the components together into a main analysis pipeline.
+    - **Reporting**: Generate an interactive HTML dashboard with Plotly to visualize scenario impacts.
+    - **Example Notebook**: Provide a comprehensive example notebook demonstrating a full analysis.
+
+## Getting Started
+
+As the project is under active development, the best way to use it is by cloning the repository and installing it in editable mode.
+
+### Prerequisites
+- Python 3.9+
+- A virtual environment (e.g., `venv`)
+
+### Installation
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/jacekkrawiec/IRBStudio.git
+    cd IRBStudio
+    ```
+
+2.  **Create and activate a virtual environment:**
+    ```bash
+    # For Windows
+    python -m venv .venv
+    .\.venv\Scripts\activate
+
+    # For macOS/Linux
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
+
+3.  **Install the package in editable mode:**
+    This command will install the package and its dependencies. The `-e` flag means that any changes you make to the source code will be immediately available.
+    ```bash
+    pip install -e .
+    ```
+
+### Basic Usage (Current Features)
+The following example demonstrates the current data loading capabilities.
+
+1.  **Create a sample portfolio file (`my_portfolio.csv`):**
+    ```csv
+    loan_identifier,balance,ltv
+    A1,100000,0.8
+    B2,200000,0.7
+    ```
+
+2.  **Create a configuration file (`config.yaml`):**
+    This file tells `IRBStudio` how to interpret your data and what scenarios to run.
+    ```yaml
+    column_mapping:
+      loan_id: loan_identifier
+      exposure: balance
+      ltv: ltv
+
+    regulatory:
+      asset_correlation: 0.15
+
+    scenarios:
+      - name: "Baseline"
+        pd_auc: 0.75
+      - name: "Improved PD Model"
+        pd_auc: 0.80
+    ```
+
+3.  **Run the loader in Python:**
+    ```python
+    from irbstudio.data import load_config, load_portfolio
+
+    # Load and validate the configuration
+    config = load_config("config.yaml")
+    print("Config loaded successfully!")
+
+    # Load and validate the portfolio data
+    portfolio_df = load_portfolio("my_portfolio.csv", config.column_mapping)
+    print("Portfolio loaded successfully:")
+    print(portfolio_df.head())
+    ```
+
+## Contributing
+Contributions are welcome, even at this early stage! Whether it's reporting a bug, suggesting a feature, or writing code, your help is appreciated.
+
+Please feel free to open an issue or submit a pull request.
+
+---
+*This project is for educational and research purposes and should not be used for actual regulatory capital calculation without independent verification.*

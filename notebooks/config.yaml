@@ -1,0 +1,29 @@
+# Example configuration for IRBStudio demonstration
+
+column_mapping:
+  loan_id: loan_identifier
+  exposure: exposure
+  ltv: ltv
+  loan_type: loan_type
+  default_flag: default_flag
+  loan_type_mapping:
+    historical: "H"
+    application: "A"
+
+regulatory:
+  jurisdiction: "Demo"
+  asset_correlation: 0.15
+  confidence_level: 0.999
+
+scenarios:
+  - name: "Base Case"
+    pd_auc: 0.78
+    portfolio_default_rate: 0.03
+    lgd: 0.45
+    description: "Central estimate for the portfolio."
+
+  - name: "Stress Scenario"
+    pd_auc: 0.70
+    portfolio_default_rate: 0.08
+    lgd: 0.65
+    description: "A downturn scenario with lower model power and higher expected defaults."

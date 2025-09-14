@@ -20,6 +20,10 @@ dependencies = [
     "pydantic",
     "scipy",
     "plotly",
+    "scikit-learn",
+    "statsmodels",
+    'jinja2',
+    'matplotlib',
 ]
 
 [project.optional-dependencies]
