@@ -4,8 +4,16 @@ import yaml
 import pandas as pd
 from ..config.schema import Config, ColumnMapping
 from ..utils.logging import get_logger
+import os
+import glob
 
 logger = get_logger(__name__)
+
+FREDDIE_MAC_PERF_COLS = ['Loan_Sequence_Number','Monthly_Reporting_Period','Current_Actual_UPB','Current_Loan_Delinquency_Status','Loan_Age','Remaining_Months_to_Legal_Maturity','Defect_Settlement_Date','Modification_Flag','Zero_Balance_Code','Zero_Balance_Effective_Date','Current_Interest_Rate','Current_Deferred_UPB','Due_Date_of_Last_Paid_Installment_(DDLPI)','MI_Recoveries','Net_Sales_Proceeds','Non_MI_Recoveries','Expenses','Legal_Costs','Maintenance_and_Preservation_Costs','Taxes_and_Insurance','Miscellaneous_Expenses','Actual_Loss_Calculation','Modification_Cost','Step_Modification_Flag','Deferred_Payment_Plan','Estimated_Loan-to-Value_(ELTV)','Zero_Balance_Removal_UPB','Delinquent_Accrued_Interest','Delinquency_Due_to_Disaster','Borrower_Assistance_Status_Code','Current_Month_Modification_Cost','Interest_Bearing_UPB']
+
+
+FREDDIE_MAC_ACQ_COLS = ['Credit Score','First Payment Date','First Time Homebuyer Flag','Maturity Date','Metropolitan Statistical Area (MSA) Or Metropolitan Division','Mortgage Insurance Percentage (MI %)','Number of Units','Occupancy Status','Original Combined Loan-to-Value (CLTV)','Original Debt-to-Income (DTI) Ratio','Original UPB','Original Loan-to-Value (LTV)','Original Interest Rate','Channel','Prepayment Penalty Mortgage (PPM) Flag','Amortization Type (Formerly Product Type)','Property State','Property Type','Postal Code','Loan Sequence Number','Loan Purpose','Original Loan Term','Number of Borrowers','Seller Name','Servicer Name','Super Conforming Flag','Pre-HARP Loan Sequence Number','Program Indicator','HARP Indicator','Property Valuation Method','Interest Only (I/O) Indicator','Mortgage Insurance Cancellation Indicator']
+
 
 
 def load_portfolio(path: str, mapping: ColumnMapping) -> pd.DataFrame:
@@ -151,4 +159,59 @@ def partition_data(
         logger.warning("No application loans found after partitioning. The simulation will have no portfolio to score.")
 
     return historical_df, application_df
+
+
+class FreddieMacLoader:
+    """
+    Loader for Freddie Mac Single-Family Loan Performance and Acquisition Data.
+    Supports loading and merging multiple files (e.g., for several quarters/years).
+    """
+    def __init__(self, perf_pattern, acq_pattern=None):
+        self.perf_pattern = perf_pattern
+        self.acq_pattern = acq_pattern
+
+    def load_performance(self):
+        """
+        Loads and concatenates all performance files matching the pattern.
+        Returns:
+            pd.DataFrame: Performance data
+        """
+        perf_files = glob.glob(self.perf_pattern)
+        if not perf_files:
+            raise FileNotFoundError(f"No performance files found for pattern: {self.perf_pattern}")
+        return pd.concat([
+            pd.read_csv(f, delimiter='|', names=FREDDIE_MAC_PERF_COLS, header=None, low_memory=False) for f in perf_files
+        ], ignore_index=True)
+
+    def load_acquisition(self):
+        """
+        Loads and concatenates all acquisition files matching the pattern.
+        Returns:
+            pd.DataFrame: Acquisition data
+        """
+        if not self.acq_pattern:
+            raise ValueError("Acquisition file pattern not provided.")
+        acq_files = glob.glob(self.acq_pattern)
+        if not acq_files:
+            raise FileNotFoundError(f"No acquisition files found for pattern: {self.acq_pattern}")
+        return pd.concat([
+            pd.read_csv(f, delimiter='|', names=FREDDIE_MAC_ACQ_COLS, header=None, low_memory=False) for f in acq_files
+        ], ignore_index=True)
+
+    def load_merged(self):
+        """
+        Loads and merges performance and acquisition data on loan_id.
+        Returns:
+            pd.DataFrame: Merged DataFrame
+        """
+        perf_df = self.load_performance()
+        if self.acq_pattern:
+            acq_df = self.load_acquisition()
+            merged_df = perf_df.merge(acq_df, on='loan_id', how='left')
+            return merged_df
+        return perf_df
+
+# Example usage:
+# loader = FreddieMacLoader('data/historical_data_*.txt', 'data/acquisition_data_*.txt')
+# df = loader.load_merged()
 

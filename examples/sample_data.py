@@ -38,7 +38,7 @@ def generate_sample_data(num_facilities=10000, target_auc=0.7):
     facilities_metadata = []
 
     # Define score distributions. Higher scores for "bad" clients (higher PD).
-    good_dist_mean_initial = 0.05  # Low score for good clients
+    good_dist_mean_initial = 0.1  # Low score for good clients
     bad_dist_mean_initial = 0.35   # High score for bad clients
     separation = bad_dist_mean_initial - good_dist_mean_initial
 
@@ -88,9 +88,9 @@ def generate_sample_data(num_facilities=10000, target_auc=0.7):
                 base_score_dist = 'bad'
 
         if base_score_dist == 'good':
-            base_score = np.random.beta(good_dist_mean_initial * 10, (1 - good_dist_mean_initial) * 10)
+            base_score = np.random.beta(good_dist_mean_initial, (1 - good_dist_mean_initial))
         else:
-            base_score = np.random.beta(bad_dist_mean_initial * 10, (1 - bad_dist_mean_initial) * 10)
+            base_score = np.random.beta(bad_dist_mean_initial, (1 - bad_dist_mean_initial))
 
         facilities_metadata.append({
             'facility_id': facility_id, 'origination_date': origination_date, 'exit_date': exit_date,
@@ -163,7 +163,7 @@ def generate_sample_data(num_facilities=10000, target_auc=0.7):
     return df
 
 if __name__ == '__main__':
-    sample_df = generate_sample_data(num_facilities=10000, target_auc=0.7)
+    sample_df = generate_sample_data(num_facilities=20000, target_auc=0.6)
     
     output_path = './data/sample_portfolio_data.csv'
     import os
