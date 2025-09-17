@@ -229,7 +229,7 @@ class BetaMixtureFitter:
         if target_auc is not None:
             if not hasattr(self, 'y_train_'):
                 raise ValueError("Target AUC calibration requires supervised fitting with labels.")
-            from .score_generation import find_auc_calibration_factor
+            from score_generation import find_auc_calibration_factor
             gamma = find_auc_calibration_factor(self, target_auc)
             samples = (samples ** gamma) / ((samples ** gamma) + ((1 - samples) ** gamma))
             logger.info(f"Applied AUC calibration with gamma={gamma:.3f} for target AUC {target_auc:.3f}")

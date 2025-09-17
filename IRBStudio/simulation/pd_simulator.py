@@ -62,8 +62,11 @@ def simulate_portfolio(
         pd.DataFrame: The simulated portfolio for the reporting date with new
                       ratings and PDs.
     """
+
     # Ensure date column is in datetime format for comparison
     portfolio_df[date_col] = pd.to_datetime(portfolio_df[date_col])
+
+    from sklearn.metrics import roc_auc_score
 
     # --- 1. Data Segmentation ---
     if application_start_date is None:
@@ -83,6 +86,7 @@ def simulate_portfolio(
     application_df = clean_portfolio_df[
         clean_portfolio_df[date_col] >= application_start_date
     ].copy()
+
 
     if historical_df.empty:
         raise ValueError("Historical data is empty. Cannot proceed with simulation.")
@@ -137,7 +141,7 @@ def simulate_portfolio(
 
     num_defaulted_facilities = len(defaulted_facility_ids)
     num_non_defaulted_facilities = len(non_defaulted_facility_ids)
-
+    bad_proportion = num_defaulted_facilities / historical_df[loan_id_col].nunique()
     # --- 4.2. Generate stable idiosyncratic scores ---
     bmf = BetaMixtureFitter(n_components=2)
     
@@ -159,20 +163,22 @@ def simulate_portfolio(
         bmf.fit(clipped_scores)
 
     # Generate idiosyncratic scores for each observation based on into_default_flag
+
     
-    ######################### To be changed
-    
+    gamma = find_auc_calibration_factor(bmf, target_auc)
+    scores_good, scores_bad = generate_calibrated_scores(bmf, gamma, num_non_defaulted_facilities, num_defaulted_facilities)
+
     nd_scores_dict = dict(
         zip(
             non_defaulted_facility_ids,
-            bmf.sample(n_samples=num_non_defaulted_facilities, component=0, target_auc=target_auc)
+            scores_good
         )
     )
 
     d_scores_dict = dict(
         zip(
             defaulted_facility_ids,
-            bmf.sample(n_samples=num_defaulted_facilities, component=1, target_auc=target_auc)
+            scores_bad
         )
     )
 
@@ -184,6 +190,7 @@ def simulate_portfolio(
     historical_df.loc[historical_df[into_default_flag_col] == 0, 'idiosyncratic_score'] = (
         historical_df.loc[historical_df[into_default_flag_col] == 0, loan_id_col].map(nd_scores_dict)
     )
+
 
     ##########################
 
@@ -200,8 +207,20 @@ def simulate_portfolio(
 
     idiosyncratic_factor = norm.ppf(historical_df['idiosyncratic_score'].clip(0.001, 0.999))
     R = asset_correlation
-    asset_value = np.sqrt(R) * idiosyncratic_factor + np.sqrt(1 - R) * historical_df['systemic_factor']
-    historical_df['simulated_score'] = norm.cdf(asset_value)
+    # asset_value = np.sqrt(R) * idiosyncratic_factor + np.sqrt(1 - R) * historical_df['systemic_factor']
+    conditional_z = (idiosyncratic_factor + np.sqrt(R) * historical_df['systemic_factor'])/np.sqrt(1 - R)
+    historical_df['simulated_score'] = norm.cdf(conditional_z)
+
+    # So the thing is, our scores are generated correctly, i.e. they are in (0,1) range, but they are
+    # systematically shifted to the right compared to the original scores. 
+    # This is due to transformation of the score with norm.ppf, that changes values close to 0 to close to negative 3.
+    # when next we apply np.sqrt(R) * -3 we're effectively shifting the score distribution toward 0, i.e. it becomes 0.3 * -3 = -0.9
+    # and then when we apply norm.cdf to -0.9 we get 0.18, which is quite far from the original score of 0.05 for the same observation.
+    # This is why we need to calibrate the scores to match the original distribution.
+
+
+
+    #######################################################################################################################
 
     # --- 4.4. Map scores to ratings ---
     historical_df['simulated_rating'] = _apply_score_bounds_to_ratings(
@@ -229,7 +248,11 @@ def simulate_portfolio(
     # --- 5.1. Handle "New Clients" ---
     if not new_clients_df.empty:
         num_new_clients = new_clients_df[loan_id_col].nunique()
-        new_client_scores = bmf.sample(n_samples=num_new_clients, component=0, target_auc=target_auc)
+        n_new_bad = int(bad_proportion * num_new_clients)
+        n_new_good = num_new_clients - n_new_bad
+        new_client_scores_good, new_client_scores_bad = generate_calibrated_scores(bmf, gamma, n_new_good, n_new_bad)
+        new_client_scores = np.concat((new_client_scores_good, new_client_scores_bad))
+        # new_client_scores = bmf.sample(n_samples=num_new_clients, component=0, target_auc=target_auc)
         new_client_score_map = dict(zip(new_clients_df[loan_id_col].unique(), new_client_scores))
         new_clients_df['simulated_score'] = new_clients_df[loan_id_col].map(new_client_score_map)
         new_clients_df['simulated_rating'] = _apply_score_bounds_to_ratings(
