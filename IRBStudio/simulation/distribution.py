@@ -223,15 +223,5 @@ class BetaMixtureFitter:
                 idx = (component_choices == i)
                 n_component_samples = np.sum(idx)
                 if n_component_samples > 0:
-                    samples[idx] = beta.rvs(self.alphas_[i], self.betas_[i], size=n_component_samples)
-        
-        # Apply AUC calibration if requested
-        if target_auc is not None:
-            if not hasattr(self, 'y_train_'):
-                raise ValueError("Target AUC calibration requires supervised fitting with labels.")
-            from score_generation import find_auc_calibration_factor
-            gamma = find_auc_calibration_factor(self, target_auc)
-            samples = (samples ** gamma) / ((samples ** gamma) + ((1 - samples) ** gamma))
-            logger.info(f"Applied AUC calibration with gamma={gamma:.3f} for target AUC {target_auc:.3f}")
-                
+                    samples[idx] = beta.rvs(self.alphas_[i], self.betas_[i], size=n_component_samples)      
         return samples
