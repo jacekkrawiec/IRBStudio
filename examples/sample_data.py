@@ -132,7 +132,7 @@ def generate_sample_data(num_facilities=10000, target_auc=0.7):
                 if default_date <= obs_date + pd.DateOffset(months=12):
                     into_default_flag = 1
             
-            if obs_date >= reporting_cutoff_date and not (is_defaulted or into_default_flag == 1):
+            if obs_date > reporting_cutoff_date and not (is_defaulted or into_default_flag == 1):
                 into_default_flag = np.nan
 
             if is_defaulted:

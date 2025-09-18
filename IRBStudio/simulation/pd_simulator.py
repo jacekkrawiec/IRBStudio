@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Optional
 from pandas.tseries.offsets import DateOffset
 from scipy.stats import norm, beta
+import time
 
 from irbstudio.simulation.distribution import BetaMixtureFitter
 from irbstudio.simulation.migration import calculate_migration_matrix
@@ -11,6 +12,7 @@ from irbstudio.simulation.score_generation import (
     generate_calibrated_scores,
     find_auc_calibration_factor,
 )
+from irbstudio.utils.logging import get_logger
 
 def simulate_portfolio(
     portfolio_df: pd.DataFrame,
@@ -63,60 +65,58 @@ def simulate_portfolio(
                       ratings and PDs.
     """
 
+    logger = get_logger(__name__)
+    logger.info("Starting portfolio simulation.")
+    import time
+    start_time = time.time()
     # Ensure date column is in datetime format for comparison
+    portfolio_df = portfolio_df.copy()
     portfolio_df[date_col] = pd.to_datetime(portfolio_df[date_col])
 
-    from sklearn.metrics import roc_auc_score
+    # Apply sorting to not repeat sorting at later stages
+    portfolio_df = portfolio_df.sort_values(by=[loan_id_col, date_col])
 
-    # --- 1. Data Segmentation ---
+    logger.info("Segmenting portfolio into historical and application samples.")
     if application_start_date is None:
-        # If no start date is provided, automatically determine the 12-month window
         most_recent_date = portfolio_df[date_col].max()
         application_start_date = most_recent_date - DateOffset(months=11)
         application_start_date = application_start_date.replace(day=1)
+        logger.info(f"No application_start_date provided. Using default: {application_start_date}")
 
-    # First, separate out all defaulted exposures to add back at the end
     defaulted_df = portfolio_df[portfolio_df[default_col] == 1].copy()
-    
-    # Create clean dataset without defaulted observations
     clean_portfolio_df = portfolio_df.loc[~portfolio_df.index.isin(defaulted_df.index)].copy()
-    
-    # Split the clean portfolio into historical and application samples
-    historical_df = clean_portfolio_df[clean_portfolio_df[date_col] < application_start_date]
+    historical_df = clean_portfolio_df[clean_portfolio_df[date_col] < application_start_date].copy()
     application_df = clean_portfolio_df[
         clean_portfolio_df[date_col] >= application_start_date
     ].copy()
 
+    logger.info(f"Historical sample size: {len(historical_df)}; Application sample size: {len(application_df)}")
 
     if historical_df.empty:
+        logger.error("Historical data is empty. Cannot proceed with simulation.")
         raise ValueError("Historical data is empty. Cannot proceed with simulation.")
     if application_df.empty:
-        # It's a valid scenario to have no application data (e.g., only running on history)
-        # We can log this and return an empty DataFrame or handle as needed.
-        # For now, we'll raise an error to make the behavior explicit.
+        logger.error(f"No application data found from date {application_start_date} onwards. Cannot proceed with simulation.")
         raise ValueError(
             f"No application data found from date {application_start_date} onwards. "
             "Cannot proceed with simulation."
         )
 
-    # --- 2. Calculate Long-Term PD from Historical Data ---
-    # Calculate monthly default rates per rating
-    monthly_rates = historical_df.groupby([date_col, rating_col]).agg(
-        defaults=(into_default_flag_col, 'sum'),
-        total=(loan_id_col, 'count')
-    ).reset_index()
+    # # --- 2. Calculate Long-Term PD from Historical Data ---
+    # # Calculate monthly default rates per rating
+    # logger.info("Calculating long-term average PD from historical data.")
+    # monthly_rates = historical_df.groupby([date_col, rating_col]).agg(
+    #     defaults=(into_default_flag_col, 'sum'),
+    #     total=(loan_id_col, 'count')
+    # ).reset_index()
 
-    # Avoid division by zero
-    monthly_rates['monthly_dr'] = 0.0
-    monthly_rates.loc[monthly_rates['total'] > 0, 'monthly_dr'] = monthly_rates['defaults'] / monthly_rates['total']
-
-    # Calculate long-term average default rate per rating
-    rating_pd_map = monthly_rates.groupby(rating_col)['monthly_dr'].mean().to_dict()
-
-    # Add PD for 'D' rating, ensuring it's present
-    rating_pd_map['D'] = 1.0
+    # monthly_rates['monthly_dr'] = 0.0
+    # monthly_rates.loc[monthly_rates['total'] > 0, 'monthly_dr'] = monthly_rates['defaults'] / monthly_rates['total']
+    # rating_pd_map = monthly_rates.groupby(rating_col)['monthly_dr'].mean().to_dict()
+    # rating_pd_map['D'] = 1.0
 
     # --- 3. Further Segmentation (Application Sample) ---
+    logger.info("Segmenting application sample into new and existing clients.")
     historical_ids = set(historical_df[loan_id_col].unique())
     application_ids = set(application_df[loan_id_col].unique())
 
@@ -129,6 +129,7 @@ def simulate_portfolio(
     new_clients_df = application_df[
         application_df[loan_id_col].isin(new_client_ids)
     ].copy()
+    logger.info(f"Existing clients: {len(existing_clients_df)}, New clients: {len(new_clients_df)}")
 
     # --- 4. Facility-Level Simulation for Historical Sample ---
     # 4.1. Implement facility-level default labeling
@@ -143,28 +144,28 @@ def simulate_portfolio(
     num_non_defaulted_facilities = len(non_defaulted_facility_ids)
     bad_proportion = num_defaulted_facilities / historical_df[loan_id_col].nunique()
     # --- 4.2. Generate stable idiosyncratic scores ---
+    logger.info("Fitting Beta Mixture Model to historical scores.")
     bmf = BetaMixtureFitter(n_components=2)
-    
-    # Prepare data for supervised fitting
     fit_df = historical_df[[score_col, into_default_flag_col]].dropna()
     X_fit = fit_df[score_col].values
     y_fit = fit_df[into_default_flag_col].values
 
     try:
         bmf.fit(X_fit, y_fit)
+        logger.info("Supervised fitting of Beta Mixture Model succeeded.")
     except Exception as e:
-        print(f"Supervised fitting failed: {e}. Falling back to unsupervised.")
-        # Fallback to unsupervised fitting on non-default scores
+        logger.warning(f"Supervised fitting failed: {e}. Falling back to unsupervised.")
         non_default_scores = historical_df.loc[historical_df[default_col] == 0, score_col].dropna()
         if len(non_default_scores) < 10:
             synthetic_scores = np.random.beta(2, 5, size=100)
             non_default_scores = pd.Series(synthetic_scores)
         clipped_scores = non_default_scores.clip(0.001, 0.999).values
         bmf.fit(clipped_scores)
+        logger.info("Unsupervised fitting of Beta Mixture Model succeeded.")
 
     # Generate idiosyncratic scores for each observation based on into_default_flag
 
-    
+    logger.info("Generating idiosyncratic scores for historical sample.")
     gamma = find_auc_calibration_factor(bmf, target_auc)
     scores_good, scores_bad = generate_calibrated_scores(bmf, gamma, num_non_defaulted_facilities, num_defaulted_facilities)
 
@@ -183,54 +184,45 @@ def simulate_portfolio(
     )
 
     historical_df['idiosyncratic_score'] = np.nan
-    historical_df.loc[historical_df[into_default_flag_col] == 1, 'idiosyncratic_score'] = (
-        historical_df.loc[historical_df[into_default_flag_col] == 1, loan_id_col].map(d_scores_dict)
+    mask_default = historical_df[into_default_flag_col] == 1
+    mask_non_default = historical_df[into_default_flag_col] == 0
+    historical_df.loc[mask_default, 'idiosyncratic_score'] = (
+        historical_df.loc[mask_default, loan_id_col].map(d_scores_dict)
     )
-
-    historical_df.loc[historical_df[into_default_flag_col] == 0, 'idiosyncratic_score'] = (
-        historical_df.loc[historical_df[into_default_flag_col] == 0, loan_id_col].map(nd_scores_dict)
+    historical_df.loc[mask_non_default, 'idiosyncratic_score'] = (
+        historical_df.loc[mask_non_default, loan_id_col].map(nd_scores_dict)
     )
-
-
-    ##########################
 
     # --- 4.3. Simulate final dynamic scores ---
+    logger.info("Inferring systemic risk factor from historical migrations.")
     systemic_factor = _infer_systemic_factor(
-        historical_df.copy(), date_col, rating_col, loan_id_col
+        historical_df, date_col, rating_col, loan_id_col, score_col
     )
 
-    # Use the already created 'idiosyncratic_score' column
-    historical_df = historical_df.merge(
-        systemic_factor, left_on=date_col, right_index=True, how='left'
-    )
-    historical_df['systemic_factor'] = historical_df['systemic_factor'].ffill().fillna(0)
+    if len(systemic_factor) < len(historical_df[date_col].unique()):
+        # add missing dates to the systemic factor series
+        missing_dates = set(historical_df[date_col].unique()) - set(systemic_factor.index)
+        # add missing dates with NaN values
+        for missing_date in missing_dates:  
+            systemic_factor.loc[missing_date] = np.nan
+        systemic_factor = systemic_factor.sort_index()
+        systemic_factor = systemic_factor.ffill().fillna(0)
 
-    idiosyncratic_factor = norm.ppf(historical_df['idiosyncratic_score'].clip(0.001, 0.999))
+    historical_df['systemic_factor'] = historical_df[date_col].map(systemic_factor.to_dict())
+
+    # idiosyncratic_factor = norm.ppf(historical_df['idiosyncratic_score'].clip(0.001, 0.999))
+    idiosyncratic_factor = norm.ppf(historical_df['idiosyncratic_score'])
     R = asset_correlation
     # asset_value = np.sqrt(R) * idiosyncratic_factor + np.sqrt(1 - R) * historical_df['systemic_factor']
+    # asset value calculated as in merton model was distorting distirbutions, thus changed to:
     conditional_z = (idiosyncratic_factor + np.sqrt(R) * historical_df['systemic_factor'])/np.sqrt(1 - R)
     historical_df['simulated_score'] = norm.cdf(conditional_z)
 
-    # So the thing is, our scores are generated correctly, i.e. they are in (0,1) range, but they are
-    # systematically shifted to the right compared to the original scores. 
-    # This is due to transformation of the score with norm.ppf, that changes values close to 0 to close to negative 3.
-    # when next we apply np.sqrt(R) * -3 we're effectively shifting the score distribution toward 0, i.e. it becomes 0.3 * -3 = -0.9
-    # and then when we apply norm.cdf to -0.9 we get 0.18, which is quite far from the original score of 0.05 for the same observation.
-    # This is why we need to calibrate the scores to match the original distribution.
-
-
-
-    #######################################################################################################################
-
     # --- 4.4. Map scores to ratings ---
+    logger.info("Mapping simulated scores to ratings for historical sample.")
     historical_df['simulated_rating'] = _apply_score_bounds_to_ratings(
         historical_df['simulated_score'], score_to_rating_bounds
     )
-
-    # --- 4.5. Handle defaulted observations ---
-    historical_df.loc[historical_df[default_col] == 1, 'simulated_rating'] = 'D'
-    historical_df['simulated_pd'] = historical_df['simulated_rating'].map(rating_pd_map)
-    historical_df.loc[historical_df[default_col] == 1, 'simulated_pd'] = 1.0
 
     historical_df.drop(
         columns=['idiosyncratic_score', 'systemic_factor'],
@@ -238,6 +230,7 @@ def simulate_portfolio(
     )
 
     # --- 5. Handle New and Existing Clients in Application Sample ---
+    logger.info("Calculating migration matrix from historical simulated ratings.")
     simulated_migration_matrix = calculate_migration_matrix(
         historical_df,
         id_col=loan_id_col,
@@ -247,60 +240,62 @@ def simulate_portfolio(
 
     # --- 5.1. Handle "New Clients" ---
     if not new_clients_df.empty:
+        logger.info("Simulating new client scores and ratings.")
         num_new_clients = new_clients_df[loan_id_col].nunique()
         n_new_bad = int(bad_proportion * num_new_clients)
         n_new_good = num_new_clients - n_new_bad
         new_client_scores_good, new_client_scores_bad = generate_calibrated_scores(bmf, gamma, n_new_good, n_new_bad)
         new_client_scores = np.concat((new_client_scores_good, new_client_scores_bad))
-        # new_client_scores = bmf.sample(n_samples=num_new_clients, component=0, target_auc=target_auc)
         new_client_score_map = dict(zip(new_clients_df[loan_id_col].unique(), new_client_scores))
         new_clients_df['simulated_score'] = new_clients_df[loan_id_col].map(new_client_score_map)
         new_clients_df['simulated_rating'] = _apply_score_bounds_to_ratings(
             new_clients_df['simulated_score'], score_to_rating_bounds
         )
-        new_clients_df_sorted = new_clients_df.sort_values([loan_id_col, date_col])
-        new_clients_df = new_clients_df_sorted.groupby(loan_id_col, group_keys=False).apply(
-            _apply_migrations,
-            start_rating_col='simulated_rating',
-            migration_matrix=simulated_migration_matrix,
+        new_clients_df = _apply_migrations_vectorized(
+            new_clients_df,
+            simulated_migration_matrix,
+            'simulated_rating',
+            date_col,
+            loan_id_col,
             keep_first_rating=True
         )
-    
+
     # --- 5.2. Handle "Existing Clients" ---
     if not existing_clients_df.empty:
-        last_historical_ratings = historical_df.sort_values(date_col).groupby(loan_id_col)['simulated_rating'].last()
-        
+        logger.info("Simulating existing client rating migrations.")
+        last_historical_ratings = historical_df.groupby(loan_id_col)['simulated_rating'].last()
         existing_clients_df['last_historical_rating'] = existing_clients_df[loan_id_col].map(last_historical_ratings)
-        
-        existing_clients_df_sorted = existing_clients_df.sort_values([loan_id_col, date_col])
-        
-        existing_clients_df = existing_clients_df_sorted.groupby(loan_id_col, group_keys=False).apply(
-            _apply_migrations,
-            start_rating_col='last_historical_rating',
-            migration_matrix=simulated_migration_matrix,
-            keep_first_rating=False
-        )
+        existing_clients_df = _apply_migrations_vectorized(
+            existing_clients_df,
+            simulated_migration_matrix,
+            'last_historical_rating',
+            date_col,
+            loan_id_col,
+            keep_first_rating=False)
 
     # --- 6. Combine and Finalize ---
-    simulated_portfolio_df = pd.concat([historical_df, new_clients_df, existing_clients_df], ignore_index=True)
+    logger.info("Combining historical, new, and existing client simulations.")
+    simulated_portfolio_df = pd.concat([historical_df, new_clients_df, existing_clients_df, defaulted_df], ignore_index=True)
     
-    simulated_portfolio_df['simulated_pd'] = simulated_portfolio_df['simulated_rating'].map(rating_pd_map)
+    # at this point we would like to calculate long time average PD per rating for new simulated ratings and for old ratings
+    # we need to do that on historical data only, as application data is not representative
+    logger.info("Calculating long-term average PD from historical simulated ratings.")
     
-    # Ensure defaulted exposures are handled correctly in the final output
-    defaulted_df['simulated_pd'] = 1.0
-    defaulted_df['simulated_rating'] = 'D'
+    simulated_pd = historical_df.groupby([date_col, 'simulated_rating'])[into_default_flag_col].mean()
+    simulated_pd_lra = simulated_pd.groupby('simulated_rating').mean().to_dict()
     
-    simulated_portfolio_df = pd.concat([simulated_portfolio_df, defaulted_df], ignore_index=True)
+    observed_pd = historical_df.groupby([date_col, rating_col])[into_default_flag_col].mean()
+    observed_pd_lra = observed_pd.groupby(rating_col).mean().to_dict()
+    simulated_portfolio_df['simulated_pd'] = simulated_portfolio_df['simulated_rating'].map(simulated_pd_lra)
+    simulated_portfolio_df['observed_pd'] = simulated_portfolio_df[rating_col].map(observed_pd_lra)
+    
+    default_rating = simulated_portfolio_df.loc[simulated_portfolio_df[default_col] == 1, rating_col].unique()[0]
 
-    # Fill any missing PDs for ratings that might not have been in the historical map
-    # (e.g., a new rating appears in simulation)
-    simulated_portfolio_df['simulated_pd'] = simulated_portfolio_df['simulated_pd'].fillna(
-        simulated_portfolio_df.groupby('simulated_rating')['simulated_pd'].transform('mean')
-    )
-    # If still missing, fill with a reasonable default
-    simulated_portfolio_df['simulated_pd'].fillna(0.1, inplace=True)
-
+    simulated_portfolio_df.loc[simulated_portfolio_df[default_col] == 1, ['simulated_rating','simulated_pd', 'observed_pd']] = [default_rating, 1.0, 1.0]
+    elapsed = time.time() - start_time
+    logger.info(f"Portfolio simulation completed in {elapsed:.2f} seconds. Final sample size: {len(simulated_portfolio_df)}")
     return simulated_portfolio_df
+
 
 def _apply_score_bounds_to_ratings(scores: pd.Series, score_to_rating_bounds: Dict[str, tuple]) -> pd.Series:
     """
@@ -329,7 +324,7 @@ def _apply_score_bounds_to_ratings(scores: pd.Series, score_to_rating_bounds: Di
     return ratings
 
 def _infer_systemic_factor(
-    historical_df: pd.DataFrame, date_col: str, rating_col: str, loan_id_col: str
+    historical_df: pd.DataFrame, date_col: str, rating_col: str, loan_id_col: str, score_col: str
 ) -> pd.Series:
     """
     Infers a historical systemic risk factor (M_t) from observed rating migrations.
@@ -346,41 +341,34 @@ def _infer_systemic_factor(
     Returns:
         pd.Series: A series of systemic factors indexed by date.
     """
-    # Handle mixed types by converting all ratings to strings for ordering
-    historical_df = historical_df.copy()
-    historical_df['rating_str'] = historical_df[rating_col].astype(str)
-    
-    # Create an ordered categorical based on natural ordering, with 'D' at the end
-    unique_ratings = historical_df['rating_str'].unique()
-    numeric_ratings = [r for r in unique_ratings if r.isdigit()]
-    numeric_ratings = sorted(numeric_ratings, key=int)
-    
-    # Add non-numeric ratings at the end (typically just 'D')
-    non_numeric_ratings = [r for r in unique_ratings if not r.isdigit()]
-    rating_order = numeric_ratings + non_numeric_ratings
+    # first we need to sort ratings by their mean score ascendingly
+    rating_order = historical_df.groupby(rating_col)[score_col].mean().sort_values().index.tolist()
     
     historical_df['rating_cat'] = pd.Categorical(
-        historical_df['rating_str'], categories=rating_order, ordered=True
+        historical_df[rating_col], categories=rating_order, ordered=True
     )
     historical_df['rating_code'] = historical_df['rating_cat'].cat.codes
 
     # Calculate rating changes period over period for each loan
-    historical_df_sorted = historical_df.sort_values(by=[loan_id_col, date_col])
-    historical_df_sorted['prev_rating_code'] = historical_df_sorted.groupby(loan_id_col)[
+    historical_df['prev_rating_code'] = historical_df.groupby(loan_id_col)[
         'rating_code'
     ].shift(1)
 
     # Determine upgrades, downgrades, and stable ratings
     delta = (
-        historical_df_sorted['rating_code'] - historical_df_sorted['prev_rating_code']
+        historical_df['rating_code'] - historical_df['prev_rating_code']
     )
-    historical_df_sorted['change'] = np.select(
-        [delta > 0, delta < 0], ['Downgrade', 'Upgrade'], default='Stable'
-    )
+    # historical_df['change'] = np.select(
+    #     [delta > 0, delta < 0], ['Downgrade', 'Upgrade'], default='Stable'
+    # )
+
+    historical_df['change'] = 'Stable'
+    historical_df.loc[delta < 0, 'change'] = 'Upgrade'
+    historical_df.loc[delta > 0, 'change'] = 'Downgrade'
 
     # Calculate net upgrade percentage for each period
     migrations_by_date = (
-        historical_df_sorted.groupby([date_col, 'change'])
+        historical_df.groupby([date_col, 'change'])
         .size()
         .unstack(fill_value=0)
     )
@@ -398,11 +386,86 @@ def _infer_systemic_factor(
     
     # Use the inverse CDF of a standard normal distribution (probit function)
     # to get the systemic factor M_t
-    from scipy.stats import norm
     systemic_factor_values = norm.ppf(prob_of_upgrade.clip(0.001, 0.999)) # Clip for stability
     systemic_factor = pd.Series(systemic_factor_values, index=prob_of_upgrade.index, name='systemic_factor')
-
     return systemic_factor
+
+
+def _apply_migrations_vectorized(
+        df, 
+        migration_matrix, 
+        rating_col, 
+        date_col,
+        loan_id_col,
+        keep_first_rating: bool = True
+        ):
+    """Apply migrations using vectorized operations"""
+    # df = existing_clients_df
+    # migration_matrix = simulated_migration_matrix
+    # rating_col = 'last_historical_rating'
+    # keep_first_rating=False
+    # Pre-compute rating mappings
+    rating_to_idx = {rating: idx for idx, rating in enumerate(migration_matrix.index)}
+    idx_to_rating = {idx: rating for rating, idx in rating_to_idx.items()}
+    
+    # Convert ratings to indices for faster lookup
+    df['rating_idx'] = df[rating_col].map(rating_to_idx)
+    
+    # Precompute cumulative probabilities for each rating
+    cum_probs = migration_matrix.cumsum(axis=1).values
+
+    # Prepare an array to hold new ratings
+    df['new_rating'] = None
+
+    # Mark first observation for each loan
+    first_obs_mask = ~df.duplicated(subset=[loan_id_col], keep='first')
+
+    for date, group in df.groupby(date_col):
+        df.loc[df[date_col] > date, 'new_rating'] = None
+        n_obs = len(group)
+        if n_obs == 0:
+            continue
+        else:
+            random_values = np.random.rand(n_obs)
+            if date == df[date_col].min():
+                current_ratings = group['rating_idx'].values
+            else:
+                current_ratings = df.loc[group.index, 'new_rating'].map(rating_to_idx).fillna(df['rating_idx']).astype(int).values
+            # potential to cut
+            # new_rating_indices = [np.searchsorted(cum_probs[int(idx)], random_values[i]) for i, idx in enumerate(current_ratings)]
+            # we can potentially improve performance by avoiding list comprehension
+            # let's assume all new_ratings are equal to current ratings
+            # instead of using searchsorted for each, we can use broadcasting
+            # but since current_ratings can be different, we will keep it simple for now
+            new_rating_indices = np.zeros(n_obs, dtype=int)
+            selected_cum_probs = cum_probs[current_ratings]
+            
+            mask_too_low = ~(random_values <= selected_cum_probs[np.arange(n_obs), current_ratings])
+            
+            mask_equal_or_higher = ~mask_too_low
+            mask_correct = mask_equal_or_higher & (current_ratings == 0) # if current rating is the lowest and random value is <= cum prob it stays as is
+            new_rating_indices[mask_correct] = current_ratings[mask_correct] 
+            random_values_to_check = random_values[~mask_correct]
+            current_ratings_to_check = current_ratings[~mask_correct]
+            
+            ratings_checked = [np.searchsorted(cum_probs[int(idx)], random_values_to_check[i]) for i, idx in enumerate(current_ratings_to_check)]
+            new_rating_indices[~mask_correct] = ratings_checked
+
+            
+            # this indicates that current carting is equal or higher than new rating
+            # we can now apply searchsorted for these rows where above check fails.
+            
+
+            new_ratings = [idx_to_rating[new_rating_idx] for new_rating_idx in new_rating_indices]
+            df.loc[group.index, 'new_rating'] = new_ratings
+            if keep_first_rating:
+                group_first_obs_mask = list(set(group.index).intersection(set(df[first_obs_mask].index)))
+                df.loc[group_first_obs_mask, 'new_rating'] = df.loc[group_first_obs_mask, rating_col]
+            df['new_rating'] = df.groupby(loan_id_col)['new_rating'].ffill()
+
+    df['simulated_rating'] = df['new_rating']
+    df.drop(columns=['rating_idx', 'new_rating'], inplace=True)
+    return df
 
 def _apply_migrations(
     group: pd.DataFrame,
