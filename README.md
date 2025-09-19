@@ -116,5 +116,11 @@ Contributions are welcome, even at this early stage! Whether it's reporting a bu
 
 Please feel free to open an issue or submit a pull request.
 
+## Documentation & Examples
+
+- See `docs/` and `documentation/` for project plans and technical documentation.
+- See `examples/` for example scripts.
+- See `notebooks/` for interactive demos.
+
 ---
 *This project is for educational and research purposes and should not be used for actual regulatory capital calculation without independent verification.*
