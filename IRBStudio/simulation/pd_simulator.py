@@ -308,19 +308,32 @@ def _apply_score_bounds_to_ratings(scores: pd.Series, score_to_rating_bounds: Di
     Returns:
         pd.Series of ratings
     """
-    # Prepare bins and labels for pd.cut
-    # Sort by min_bound
-    sorted_items = sorted(score_to_rating_bounds.items(), key=lambda x: x[1][0])
-    labels = [item[0] for item in sorted_items]
-    bounds = [item[1] for item in sorted_items]
-    # Flatten bounds to get bin edges
-    bin_edges = [bounds[0][0]] + [b[1] for b in bounds]
-    # pd.cut is right-exclusive by default, so this matches min <= x < max
-    ratings = pd.cut(scores, bins=bin_edges, labels=labels, include_lowest=True, right=False)
-    # Handle edge case: if score == max of last bin, assign last label
-    last_max = bin_edges[-1]
-    ratings = ratings.astype(object)
-    ratings[scores == last_max] = labels[-1]
+    # Create a manual mapping by checking each score against the bounds
+    ratings = pd.Series(index=scores.index, dtype=object)
+    
+    # Sort ratings by their bounds for consistent application
+    sorted_ratings = sorted(
+        [(rating, bounds) for rating, bounds in score_to_rating_bounds.items() if rating != 'D'],
+        key=lambda x: x[1][0]  # Sort by lower bound
+    )
+    
+    # Apply ratings one by one based on their bounds
+    for score_idx, score in enumerate(scores):
+        # Default to the highest rating if no match is found
+        assigned_rating = sorted_ratings[-1][0]
+        
+        # Check each rating's bounds
+        for rating, (min_bound, max_bound) in sorted_ratings:
+            if min_bound <= score < max_bound:
+                assigned_rating = rating
+                break
+            # Handle edge case for the maximum value
+            elif score == max_bound and max_bound == sorted_ratings[-1][1][1]:
+                assigned_rating = rating
+                break
+                
+        ratings.iloc[score_idx] = assigned_rating
+    
     return ratings
 
 def _infer_systemic_factor(

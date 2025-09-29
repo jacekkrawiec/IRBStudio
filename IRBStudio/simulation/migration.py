@@ -31,19 +31,47 @@ def calculate_migration_matrix(
                       unique ratings. Each cell (i, j) contains the probability
                       of migrating from rating i to rating j.
     """
-    # data = historical_df
-    # id_col=loan_id_col
-    # rating_col='simulated_rating'
-    # date_col = 'reporting_date'
-
     if not all(col in data.columns for col in [id_col, date_col, rating_col]):
         raise ValueError("One or more specified columns are not in the DataFrame.")
-    data['prev_rating'] = data.groupby(id_col)[rating_col].shift(1)
-    transitions = data.loc[data['prev_rating'].notna()]
-    migration_counts = transitions.groupby('prev_rating')[rating_col].value_counts(normalize=False).unstack().fillna(0)
+
+    # Ensure ratings are categorical for efficient mapping
+    ratings = pd.Categorical(data[rating_col])
     
-    # migration_counts = pd.crosstab(transitions['prev_rating'], transitions[rating_col])
-    migration_matrix = migration_counts.div(migration_counts.sum(axis=1), axis=0).fillna(0)
-    migration_matrix.index.name = None
-    migration_matrix.columns.name = None
-    return migration_matrix
+    # Sort by id and date to ensure correct order
+    rating_codes = ratings.codes
+    loan_ids = data[id_col].values
+
+    # Find previous rating for each row (within each loan)
+    prev_rating_codes = np.empty_like(rating_codes)
+    prev_rating_codes[0] = -1  # First row has no previous
+    prev_rating_codes[1:] = np.where(
+        loan_ids[1:] == loan_ids[:-1],
+        rating_codes[:-1],
+        -1
+    )
+
+    # Only consider rows with a previous rating
+    mask = prev_rating_codes != -1
+    from_codes = prev_rating_codes[mask]
+    to_codes = rating_codes[mask]
+
+    # Build 2D histogram (transition counts)
+    n_ratings = len(ratings.categories)
+    migration_counts = np.zeros((n_ratings, n_ratings), dtype=np.int64)
+    np.add.at(migration_counts, (from_codes, to_codes), 1)
+
+    # Normalize rows to get probabilities
+    row_sums = migration_counts.sum(axis=1, keepdims=True)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        migration_matrix = np.divide(migration_counts, row_sums, where=row_sums!=0)
+        migration_matrix = np.nan_to_num(migration_matrix)
+
+    # Convert to DataFrame with proper labels
+    migration_df = pd.DataFrame(
+        migration_matrix,
+        index=ratings.categories,
+        columns=ratings.categories
+    )
+
+    return migration_df
+
