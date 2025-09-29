@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+
 from datetime import datetime
 from typing import Dict, Optional, List, Union, Tuple
 from pandas.tseries.offsets import DateOffset
@@ -28,12 +29,20 @@ class PortfolioSimulator:
     3. Ability to reuse fitted models across multiple simulations
     4. Extensibility for new simulation features
     
-    The simulation follows a procedurally-faithful approach by:
-    1. Segmenting the portfolio into historical and application samples
-    2. Fitting models to historical data
-    3. Simulating rating migrations for existing clients
-    4. Drawing scores for new clients from a fitted distribution
-    5. Combining the segments and applying the final calibration
+    The simulation workflow:
+    1. Preparation phase (deterministic):
+       - Segment the portfolio into historical and application samples
+       - Fit Beta Mixture model to historical data
+       - Calculate observed rating PDs
+       - Infer systemic factor from historical migrations
+       
+    2. Simulation phase (stochastic):
+       - Generate idiosyncratic scores and ratings for historical data
+       - Calculate migration matrices from simulated ratings
+       - Calculate simulated rating PDs
+       - Simulate rating migrations for existing clients
+       - Draw scores for new clients from fitted distribution
+       - Combine all segments into final portfolio
     """
     
     def __init__(
@@ -125,16 +134,12 @@ class PortfolioSimulator:
         This method:
         1. Segments the portfolio data
         2. Fits the Beta Mixture Model to historical scores
-        3. Calculates migration matrices
+        3. Calculates observed rating PDs
         4. Infers systemic factors
         
         Returns:
             self: Returns self for method chaining
         """
-        # Set random seed for reproducibility during preparation
-        if self.random_seed is not None:
-            np.random.seed(self.random_seed)
-            
         start_time = time.time()
         self.logger.info("Starting portfolio simulation preparation.")
         
@@ -144,14 +149,20 @@ class PortfolioSimulator:
         # Fit Beta Mixture Model and prepare calibration factors
         self._fit_beta_mixture()
         
-        # Infer systemic factor and generate historical simulated ratings
-        self._simulate_historical_ratings()
+        # Infer systemic factor from observed ratings
+        self.logger.info("Inferring systemic risk factor from historical migrations.")
+        self.systemic_factor = self._infer_systemic_factor()
         
-        # Calculate migration matrix from historical ratings
-        self._calculate_migration_matrix()
+        # Handle missing dates in systemic factor
+        if len(self.systemic_factor) < len(self.historical_df[self.date_col].unique()):
+            missing_dates = set(self.historical_df[self.date_col].unique()) - set(self.systemic_factor.index)
+            for missing_date in missing_dates:  
+                self.systemic_factor.loc[missing_date] = np.nan
+            self.systemic_factor = self.systemic_factor.sort_index()
+            self.systemic_factor = self.systemic_factor.ffill().fillna(0)
         
-        # Calculate long-term average PDs for observed and simulated ratings
-        self._calculate_long_term_pd()
+        # Calculate long-term average PDs for observed ratings only
+        self._calculate_long_term_pd(use_simulated=False)
         
         # Mark preparation as complete
         self.is_prepared = True
@@ -181,7 +192,18 @@ class PortfolioSimulator:
             np.random.seed(self.random_seed)
         
         start_time = time.time()
-        self.logger.info("Starting portfolio simulation iteration.")        # Simulate new clients
+        self.logger.info("Starting portfolio simulation iteration.")
+        
+        # Generate simulated ratings for historical data
+        self._simulate_historical_ratings()
+        
+        # Calculate migration matrix from simulated historical ratings
+        self._calculate_migration_matrix()
+        
+        # Calculate long-term average PDs for simulated ratings
+        self._calculate_long_term_pd(use_simulated=True)
+        
+        # Simulate new clients
         simulated_new_clients_df = self._simulate_new_clients() if not self.new_clients_df.empty else pd.DataFrame()
         
         # Simulate existing clients
@@ -245,24 +267,33 @@ class PortfolioSimulator:
     def _segment_portfolio(self):
         """Segment the portfolio into historical and application samples."""
         self.logger.info("Segmenting portfolio into historical and application samples.")
-        
+
         # Determine application start date if not provided
         if self.application_start_date is None:
             most_recent_date = self.portfolio_df[self.date_col].max()
             self.application_start_date = most_recent_date - DateOffset(months=11)
             self.application_start_date = self.application_start_date.replace(day=1)
             self.logger.info(f"No application_start_date provided. Using default: {self.application_start_date}")
-        
+
         # Separate defaulted loans
-        self.defaulted_df = self.portfolio_df[self.portfolio_df[self.default_col] == 1].copy()
-        clean_portfolio_df = self.portfolio_df.loc[~self.portfolio_df.index.isin(self.defaulted_df.index)].copy()
-        
+        defaults = self.portfolio_df[self.default_col].values
+        defaulted_map = defaults == 1
+        clean_map = defaults != 1
+        self.defaulted_df = self.portfolio_df[defaulted_map].copy()
+
+        # self.defaulted_df = self.portfolio_df[self.portfolio_df[self.default_col] == 1].copy()
+        # clean_portfolio_df = self.portfolio_df.loc[~self.portfolio_df.index.isin(self.defaulted_df.index)].copy()
+
         # Split into historical and application periods
-        self.historical_df = clean_portfolio_df[clean_portfolio_df[self.date_col] < self.application_start_date].copy()
-        self.application_df = clean_portfolio_df[clean_portfolio_df[self.date_col] >= self.application_start_date].copy()
-        
+        dates = self.portfolio_df[self.date_col].values
+        historical_map = (dates < np.datetime64(self.application_start_date)) & clean_map
+        application_map = (dates >= np.datetime64(self.application_start_date)) & clean_map
+
+        self.historical_df = self.portfolio_df[historical_map].copy()
+        self.application_df = self.portfolio_df[application_map].copy()
+
         self.logger.info(f"Historical sample size: {len(self.historical_df)}; Application sample size: {len(self.application_df)}")
-        
+
         # Validate segments
         if self.historical_df.empty:
             self.logger.error("Historical data is empty. Cannot proceed with simulation.")
@@ -273,24 +304,25 @@ class PortfolioSimulator:
                 f"No application data found from date {self.application_start_date} onwards. "
                 "Cannot proceed with simulation."
             )
-        
+
         # Further segment application sample into new and existing clients
         self.logger.info("Segmenting application sample into new and existing clients.")
+
         historical_ids = set(self.historical_df[self.loan_id_col].unique())
         application_ids = set(self.application_df[self.loan_id_col].unique())
-        
+
         existing_client_ids = historical_ids.intersection(application_ids)
         new_client_ids = application_ids - historical_ids
-        
+
         self.existing_clients_df = self.application_df[
             self.application_df[self.loan_id_col].isin(existing_client_ids)
         ].copy()
         self.new_clients_df = self.application_df[
             self.application_df[self.loan_id_col].isin(new_client_ids)
         ].copy()
-        
+
         self.logger.info(f"Existing clients: {len(self.existing_clients_df)}, New clients: {len(self.new_clients_df)}")
-        
+
         # Calculate default rates for later use
         self.defaulted_facility_ids = set(
             self.historical_df.loc[self.historical_df[self.into_default_flag_col] == 1, self.loan_id_col].unique()
@@ -298,11 +330,11 @@ class PortfolioSimulator:
         self.non_defaulted_facility_ids = set(
             self.historical_df.loc[self.historical_df[self.into_default_flag_col] == 0, self.loan_id_col].unique()
         )
-        
+
         self.num_defaulted_facilities = len(self.defaulted_facility_ids)
         self.num_non_defaulted_facilities = len(self.non_defaulted_facility_ids)
         self.bad_proportion = self.num_defaulted_facilities / self.historical_df[self.loan_id_col].nunique()
-        
+
         # Get default rating for later use
         if not self.defaulted_df.empty:
             self.default_rating = self.defaulted_df.loc[self.defaulted_df[self.default_col] == 1, self.rating_col].unique()[0]
@@ -364,19 +396,7 @@ class PortfolioSimulator:
             self.historical_df.loc[mask_non_default, self.loan_id_col].map(nd_scores_dict)
         )
         
-        # Infer systemic factor
-        self.logger.info("Inferring systemic risk factor from historical migrations.")
-        self.systemic_factor = self._infer_systemic_factor()
-        
-        # Handle missing dates in systemic factor
-        if len(self.systemic_factor) < len(self.historical_df[self.date_col].unique()):
-            missing_dates = set(self.historical_df[self.date_col].unique()) - set(self.systemic_factor.index)
-            for missing_date in missing_dates:  
-                self.systemic_factor.loc[missing_date] = np.nan
-            self.systemic_factor = self.systemic_factor.sort_index()
-            self.systemic_factor = self.systemic_factor.ffill().fillna(0)
-        
-        # Map systemic factor to historical data
+        # Map systemic factor to historical data (systemic factor was calculated in prepare_simulation)
         self.historical_df['systemic_factor'] = self.historical_df[self.date_col].map(self.systemic_factor.to_dict())
         
         # Calculate simulated scores using Merton model
@@ -404,21 +424,30 @@ class PortfolioSimulator:
             rating_col='simulated_rating'
         )
     
-    def _calculate_long_term_pd(self):
-        """Calculate long-term average PDs for observed and simulated ratings."""
-        self.logger.info("Calculating long-term average PD from historical simulated ratings.")
+    def _calculate_long_term_pd(self, use_simulated: bool = False):
+        """
+        Calculate long-term average PDs for ratings.
         
-        # Calculate simulated PDs
-        simulated_pd = self.historical_df.groupby([self.date_col, 'simulated_rating'])[self.into_default_flag_col].mean()
-        self.simulated_pd_lra = simulated_pd.groupby('simulated_rating').mean().to_dict()
-        
-        # Calculate observed PDs
-        observed_pd = self.historical_df.groupby([self.date_col, self.rating_col])[self.into_default_flag_col].mean()
-        self.observed_pd_lra = observed_pd.groupby(self.rating_col).mean().to_dict()
-        
-        # Ensure default rating has PD of 1.0
-        self.simulated_pd_lra[self.default_rating] = 1.0
-        self.observed_pd_lra[self.default_rating] = 1.0
+        Args:
+            use_simulated: If True, calculate PDs for simulated ratings.
+                           If False, calculate only for observed ratings.
+        """
+        if use_simulated:
+            self.logger.info("Calculating long-term average PD from simulated ratings.")
+            # Calculate simulated PDs
+            simulated_pd = self.historical_df.groupby([self.date_col, 'simulated_rating'])[self.into_default_flag_col].mean()
+            self.simulated_pd_lra = simulated_pd.groupby('simulated_rating').mean().to_dict()
+            
+            # Ensure default rating has PD of 1.0
+            self.simulated_pd_lra[self.default_rating] = 1.0
+        else:
+            self.logger.info("Calculating long-term average PD from observed ratings.")
+            # Calculate observed PDs
+            observed_pd = self.historical_df.groupby([self.date_col, self.rating_col])[self.into_default_flag_col].mean()
+            self.observed_pd_lra = observed_pd.groupby(self.rating_col).mean().to_dict()
+            
+            # Ensure default rating has PD of 1.0
+            self.observed_pd_lra[self.default_rating] = 1.0
     
     def _simulate_new_clients(self) -> pd.DataFrame:
         """Simulate ratings for new clients."""
@@ -451,7 +480,7 @@ class PortfolioSimulator:
         new_clients_df['simulated_rating'] = self._apply_score_bounds_to_ratings(new_clients_df['simulated_score'])
         
         # Apply migrations
-        new_clients_df = self._apply_migrations_vectorized(
+        new_clients_df = self._apply_migrations_optimized(
             new_clients_df,
             self.simulated_migration_matrix,
             'simulated_rating',
@@ -471,11 +500,11 @@ class PortfolioSimulator:
         existing_clients_df = self.existing_clients_df.copy()
         
         # Get the last historical rating for each existing client
-        last_historical_ratings = self.historical_df.groupby(self.loan_id_col)['simulated_rating'].last()
-        existing_clients_df['last_historical_rating'] = existing_clients_df[self.loan_id_col].map(last_historical_ratings)
+        last_historical_ratings = self.historical_df[[self.loan_id_col, 'simulated_rating']].drop_duplicates(subset=self.loan_id_col, keep='last').set_index(self.loan_id_col)
+        existing_clients_df['last_historical_rating'] = existing_clients_df[self.loan_id_col].map(last_historical_ratings['simulated_rating'])
         
         # Apply migrations
-        existing_clients_df = self._apply_migrations_vectorized(
+        existing_clients_df = self._apply_migrations_optimized(
             existing_clients_df,
             self.simulated_migration_matrix,
             'last_historical_rating',
@@ -487,6 +516,7 @@ class PortfolioSimulator:
     def _apply_score_bounds_to_ratings(self, scores: pd.Series) -> pd.Series:
         """
         Map scores to ratings using explicit user-provided score bounds for each rating.
+        This is a vectorized implementation for efficiency with large datasets.
 
         Args:
             scores: pd.Series of scores to map
@@ -494,33 +524,34 @@ class PortfolioSimulator:
         Returns:
             pd.Series of ratings
         """
-        # Create a manual mapping by checking each score against the bounds
-        ratings = pd.Series(index=scores.index, dtype=object)
+        # Filter out default rating if present and sort ratings by their bounds
+        rating_bounds = [(rating, bounds) for rating, bounds in self.score_to_rating_bounds.items() 
+                         if rating != self.default_rating]
+        rating_bounds.sort(key=lambda x: x[1][0])  # Sort by lower bound
         
-        # Sort ratings by their bounds for consistent application
-        sorted_ratings = sorted(
-            [(rating, bounds) for rating, bounds in self.score_to_rating_bounds.items() if rating != self.default_rating],
-            key=lambda x: x[1][0]  # Sort by lower bound
-        )
+        # Create arrays of bounds and corresponding ratings
+        lower_bounds = np.array([bounds[0] for _, bounds in rating_bounds])
+        upper_bounds = np.array([bounds[1] for _, bounds in rating_bounds])
+        ratings_list = [rating for rating, _ in rating_bounds]
         
-        # Apply ratings one by one based on their bounds
-        for score_idx, score in enumerate(scores):
-            # Default to the highest rating if no match is found
-            assigned_rating = sorted_ratings[-1][0]
+        # Create a result series initialized with the highest rating
+        # (will be used for scores that don't fall in any defined range)
+        result = pd.Series(ratings_list[-1], index=scores.index)
+        
+        # For each rating (starting from the lowest), assign it to scores within its bounds
+        # We process in reverse order so later (higher) ratings overwrite earlier ones
+        scores_array = scores.values
+        for i in range(len(ratings_list)-1, -1, -1):
+            mask = (scores_array >= lower_bounds[i]) & (scores_array < upper_bounds[i])
+            result[mask] = ratings_list[i]
+        
+        # Handle the edge case for exact match of the maximum bound
+        # Only assign the rating if the score equals the max bound of the highest rating
+        max_value_mask = scores_array == upper_bounds[-1]
+        if np.any(max_value_mask):
+            result[max_value_mask] = ratings_list[-1]
             
-            # Check each rating's bounds
-            for rating, (min_bound, max_bound) in sorted_ratings:
-                if min_bound <= score < max_bound:
-                    assigned_rating = rating
-                    break
-                # Handle edge case for the maximum value
-                elif score == max_bound and max_bound == sorted_ratings[-1][1][1]:
-                    assigned_rating = rating
-                    break
-                    
-            ratings.iloc[score_idx] = assigned_rating
-        
-        return ratings
+        return result
     
     def _infer_systemic_factor(self) -> pd.Series:
         """
@@ -578,7 +609,7 @@ class PortfolioSimulator:
         systemic_factor = pd.Series(systemic_factor_values, index=prob_of_upgrade.index, name='systemic_factor')
         
         return systemic_factor
-    
+
     def _apply_migrations_vectorized(
             self, 
             df: pd.DataFrame,
@@ -598,9 +629,6 @@ class PortfolioSimulator:
         Returns:
             DataFrame with simulated ratings
         """
-        # Create a copy to avoid modifying the input
-        df = df.copy()
-        
         # Pre-compute rating mappings
         rating_to_idx = {rating: idx for idx, rating in enumerate(migration_matrix.index)}
         idx_to_rating = {idx: rating for rating, idx in rating_to_idx.items()}
@@ -660,81 +688,109 @@ class PortfolioSimulator:
                     df.loc[group_first_obs_mask, 'new_rating'] = df.loc[group_first_obs_mask, rating_col]
                 
                 # Forward fill ratings within each loan
-                df['new_rating'] = df.groupby(self.loan_id_col)['new_rating'].ffill()
+                # df['new_rating'] = df.groupby(self.loan_id_col)['new_rating'].ffill()
+                loan_id_to_new_rating = dict(zip(group[self.loan_id_col], new_ratings))
+                next_date = date + pd.DateOffset(months=1)
+                next_date = next_date.replace(day=1) + pd.offsets.MonthEnd(0)
+                df.loc[df[self.date_col] == next_date, 'new_rating'] = df.loc[df[self.date_col] == next_date, self.loan_id_col].map(loan_id_to_new_rating)
+
 
         # Set final simulated rating and clean up
         df['simulated_rating'] = df['new_rating']
         df.drop(columns=['rating_idx', 'new_rating'], inplace=True)
         
         return df
-
-
-# Backward compatibility function
-def simulate_portfolio(
-    portfolio_df: pd.DataFrame,
-    score_to_rating_bounds: Dict[str, tuple],
-    rating_col: str,
-    loan_id_col: str,
-    date_col: str,
-    default_col: str,
-    into_default_flag_col: str,
-    score_col: str,
-    application_start_date: Optional[datetime] = None,
-    asset_correlation: float = 0.15,
-    exposure_col: Optional[str] = None,
-    target_auc: Optional[float] = None,
-) -> pd.DataFrame:
-    """
-    Orchestrates the procedurally-faithful portfolio simulation.
-
-    This function performs a hybrid simulation by:
-    1. Segmenting the portfolio into historical and application samples.
-    2. Calculating a long-term average PD from the historical data.
-    3. Simulating rating migrations for existing clients.
-    4. Drawing scores for new clients from a fitted distribution.
-    5. Combining the segments and applying the final PD calibration.
-
-    Args:
-        portfolio_df (pd.DataFrame): The full portfolio dataset, including history.
-        score_to_rating_bounds (Dict[str, tuple]): Dict mapping rating to (min_score, max_score).
-        rating_col (str): The name of the column containing rating grades.
-        loan_id_col (str): The name of the column containing unique loan identifiers.
-        date_col (str): The name of the column containing the snapshot date.
-        default_col (str): The name of the column containing the default flag.
-        into_default_flag_col (str): The name of the column flagging the period of default entry.
-        score_col (str): The name of the column containing the current model's score.
-        application_start_date (Optional[datetime], optional): The date from which
-            the application sample begins. If not provided, it defaults to a
-            12-month window ending on the most recent date in the dataset.
-            Defaults to None.
-        asset_correlation (float, optional): The asset correlation parameter (R)
-            used in the Merton model. Defaults to 0.15, a common value for
-            mortgages.
-        exposure_col (Optional[str], optional): The name of the exposure column.
-            If provided, it will be carried through the simulation. Defaults to None.
-        target_auc (Optional[float], optional): The target AUC for new client scores.
-            If provided, new client scores will be calibrated to achieve this AUC
-            while preserving the fitted distribution shape. Defaults to None.
-
-    Returns:
-        pd.DataFrame: The simulated portfolio for the reporting date with new
-                      ratings and PDs.
-    """
-    # Create simulator instance
-    simulator = PortfolioSimulator(
-        portfolio_df=portfolio_df,
-        score_to_rating_bounds=score_to_rating_bounds,
-        rating_col=rating_col,
-        loan_id_col=loan_id_col,
-        date_col=date_col,
-        default_col=default_col,
-        into_default_flag_col=into_default_flag_col,
-        score_col=score_col,
-        application_start_date=application_start_date,
-        asset_correlation=asset_correlation,
-        exposure_col=exposure_col,
-        target_auc=target_auc,
-    )
     
-    # Run simulation
-    return simulator.prepare_simulation().simulate_once()
+    def _apply_migrations_optimized(
+            self, 
+            df: pd.DataFrame,
+            migration_matrix: pd.DataFrame,
+            rating_col: str,
+            keep_first_rating: bool = True
+            ) -> pd.DataFrame:
+        """
+        Apply migrations using vectorized operations.
+        
+        Args:
+            df: DataFrame containing the loans to migrate
+            migration_matrix: Matrix of migration probabilities
+            rating_col: Column containing the starting rating
+            keep_first_rating: Whether to keep the first rating or migrate it
+            
+        Returns:
+            DataFrame with simulated ratings
+        """
+        # Pre-compute rating mappings
+        rating_to_idx = {rating: idx for idx, rating in enumerate(migration_matrix.index)}
+        idx_to_rating = {idx: rating for rating, idx in rating_to_idx.items()}
+        
+        # Precompute cumulative probabilities for each rating
+        cum_probs = migration_matrix.cumsum(axis=1).values
+
+        # Mark first observation for each loan
+        dates_unique = sorted(df[self.date_col].unique())
+        new_ratings = np.empty(len(df), dtype=object)
+        dates = df[self.date_col].values
+        old_ratings_idx = df[rating_col].map(rating_to_idx).values
+        first_obs_mask = ~df.duplicated(subset=[self.loan_id_col], keep='first').values
+        loan_ids = df[self.loan_id_col].values
+        for date in dates_unique:
+            # applies nan to all future dates
+            date = np.datetime64(date)
+            new_ratings[dates > date] = None
+            group_mask = dates == date
+            n_obs = group_mask.sum()
+            if n_obs == 0:
+                continue
+            else:
+                random_values = np.random.rand(n_obs)
+                if date == dates.min():
+                    current_ratings = old_ratings_idx[group_mask] # first date, use old ratings as starting point.
+                else:
+                    # use new ratings if available, otherwise old ratings
+                    current_ratings = new_ratings[group_mask]
+                    #143 empty values for may 2024
+
+                    # Fill in with old ratings where new_ratings is still None
+                    current_ratings = np.where(current_ratings == None, old_ratings_idx[group_mask], current_ratings).astype(int)
+
+                # Initialize new ratings array
+                new_rating_indices = np.zeros(n_obs, dtype=int) # we don't need this probably
+                selected_cum_probs = cum_probs[current_ratings]
+                
+                # Identify ratings that need to be migrated
+                mask_too_low = ~(random_values <= selected_cum_probs[np.arange(n_obs), current_ratings])
+                mask_equal_or_higher = ~mask_too_low
+                mask_correct = mask_equal_or_higher & (current_ratings == 0)  # Lowest rating and random value <= cum prob
+                
+                # Keep correct ratings unchanged
+                new_rating_indices[mask_correct] = current_ratings[mask_correct] 
+                
+                # Process ratings that need migration
+                random_values_to_check = random_values[~mask_correct]
+                current_ratings_to_check = current_ratings[~mask_correct]
+                
+                # Find new ratings based on migration probabilities
+                ratings_checked = [np.searchsorted(cum_probs[int(idx)], random_values_to_check[i]) 
+                                for i, idx in enumerate(current_ratings_to_check)]
+                new_rating_indices[~mask_correct] = ratings_checked
+
+                # Convert indices back to ratings
+                # new_ratings = [idx_to_rating[new_rating_idx] for new_rating_idx in new_rating_indices]
+
+                # df.loc[group.index, 'new_rating'] = new_ratings
+                new_ratings[group_mask] = new_rating_indices
+                # Handle first observation if needed
+                if keep_first_rating:
+                    group_first_obs_mask = first_obs_mask & group_mask
+                    new_ratings[group_first_obs_mask] = old_ratings_idx[group_first_obs_mask]
+                
+                # Forward fill ratings within each loan
+                loan_id_to_new_rating = dict(zip(loan_ids[group_mask], new_ratings[group_mask]))
+                next_date = date + pd.DateOffset(months=1)
+                next_date = next_date.replace(day=1) + pd.offsets.MonthEnd(0)
+                next_date_mask = dates == next_date
+                new_ratings[next_date_mask] = np.array([loan_id_to_new_rating.get(loan_id, None) for loan_id in loan_ids[next_date_mask]])
+                # Set final simulated rating and clean up
+        df['simulated_rating'] = [idx_to_rating[idx] for idx in new_ratings]
+        return df
