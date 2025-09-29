@@ -9,10 +9,6 @@ import time
 
 from irbstudio.simulation.distribution import BetaMixtureFitter
 from irbstudio.simulation.migration import calculate_migration_matrix
-from irbstudio.simulation.score_generation import (
-    generate_calibrated_scores,
-    find_auc_calibration_factor,
-)
 from irbstudio.utils.logging import get_logger
 
 
@@ -365,7 +361,7 @@ class PortfolioSimulator:
         
         # Calculate calibration factor if target AUC is provided
         if self.target_auc is not None and 0.5 <= self.target_auc < 1.0:
-            self.gamma = find_auc_calibration_factor(self.beta_mixture, self.target_auc)
+            self.gamma = self.beta_mixture.calibrate_for_auc(self.target_auc)
         else:
             # Default gamma of 2.0 provides a reasonable separation when no target is specified
             self.gamma = 2.0
@@ -375,8 +371,7 @@ class PortfolioSimulator:
         """Generate simulated ratings for historical data."""
         # Generate idiosyncratic scores
         self.logger.info("Generating idiosyncratic scores for historical sample.")
-        scores_good, scores_bad = generate_calibrated_scores(
-            self.beta_mixture, 
+        scores_good, scores_bad = self.beta_mixture.generate_calibrated_scores(
             self.gamma, 
             self.num_non_defaulted_facilities, 
             self.num_defaulted_facilities
@@ -464,8 +459,7 @@ class PortfolioSimulator:
         n_new_bad = int(self.bad_proportion * num_new_clients)
         n_new_good = num_new_clients - n_new_bad
         
-        new_client_scores_good, new_client_scores_bad = generate_calibrated_scores(
-            self.beta_mixture, 
+        new_client_scores_good, new_client_scores_bad = self.beta_mixture.generate_calibrated_scores(
             self.gamma, 
             n_new_good, 
             n_new_bad
