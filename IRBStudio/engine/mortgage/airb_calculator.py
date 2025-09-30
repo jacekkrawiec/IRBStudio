@@ -56,7 +56,8 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         result_df = portfolio_df.copy()
         
         # Ensure PD is between 0 and 1, and not exactly 0 or 1 (for numerical stability)
-        result_df['pd'] = result_df['pd'].clip(0.0001, 0.9999)
+        # applies floor from CRR3 (0.05%)
+        result_df['pd'] = result_df['pd'].clip(0.0005, 0.9999)
         
         # Use exposure-level LGD if available, otherwise use default
         if 'lgd' not in result_df.columns:
@@ -64,7 +65,6 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         
         # AIRB RW formula components
         R = self.asset_correlation
-        self.logger.info(f"Using asset correlation: {R}")
         
         # Calculate risk weight using vectorized operations
         sqrt_1_minus_R = np.sqrt(1 - R)

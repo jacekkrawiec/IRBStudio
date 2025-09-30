@@ -146,7 +146,6 @@ class PortfolioSimulator:
         self._fit_beta_mixture()
         
         # Infer systemic factor from observed ratings
-        self.logger.info("Inferring systemic risk factor from historical migrations.")
         self.systemic_factor = self._infer_systemic_factor()
         
         # Handle missing dates in systemic factor
@@ -226,16 +225,21 @@ class PortfolioSimulator:
         
         return simulated_portfolio_df
     
-    def run_monte_carlo(self, num_iterations: int, random_seed: Optional[int] = None) -> List[pd.DataFrame]:
+    def run_monte_carlo(self, num_iterations: int, random_seed: Optional[int] = None, 
+                        memory_efficient: bool = False) -> Union[List[pd.DataFrame], pd.DataFrame]:
         """
         Run multiple simulations for Monte Carlo analysis.
         
         Args:
             num_iterations: Number of simulations to run
             random_seed: Optional base random seed for reproducibility
+            memory_efficient: If True, returns a single DataFrame for a single iteration
+                            instead of storing all iterations in memory
             
         Returns:
-            List[pd.DataFrame]: List of simulated portfolios, one for each iteration
+            List[pd.DataFrame] or pd.DataFrame: If memory_efficient=False, returns a list of simulated
+                                              portfolios. If memory_efficient=True and num_iterations=1,
+                                              returns a single DataFrame.
         """
         if not self.is_prepared:
             self.prepare_simulation()
@@ -245,13 +249,24 @@ class PortfolioSimulator:
         self.logger.info(f"Starting Monte Carlo simulation with {num_iterations} iterations.")
         start_time = time.time()
         
+        # Memory-efficient mode for single iteration
+        if memory_efficient and num_iterations == 1:
+            iter_seed = random_seed
+            simulated_df = self.simulate_once(random_seed=iter_seed)
+            elapsed = time.time() - start_time
+            self.logger.info(f"Memory-efficient simulation completed in {elapsed:.2f} seconds.")
+            return [simulated_df]  # Return as list for compatibility
+        
+        # Standard mode
         for i in range(num_iterations):
             # Set iteration-specific seed if base seed was provided
             iter_seed = None
             if random_seed is not None:
                 iter_seed = random_seed + i
             
-            self.logger.info(f"Running Monte Carlo iteration {i+1}/{num_iterations}")
+            if i % 5 == 0 or i == num_iterations - 1:  # Reduced logging
+                self.logger.info(f"Running Monte Carlo iteration {i+1}/{num_iterations}")
+            
             simulated_df = self.simulate_once(random_seed=iter_seed)
             results.append(simulated_df)
         
@@ -269,7 +284,6 @@ class PortfolioSimulator:
             most_recent_date = self.portfolio_df[self.date_col].max()
             self.application_start_date = most_recent_date - DateOffset(months=11)
             self.application_start_date = self.application_start_date.replace(day=1)
-            self.logger.info(f"No application_start_date provided. Using default: {self.application_start_date}")
 
         # Separate defaulted loans
         defaults = self.portfolio_df[self.default_col].values
@@ -288,7 +302,6 @@ class PortfolioSimulator:
         self.historical_df = self.portfolio_df[historical_map].copy()
         self.application_df = self.portfolio_df[application_map].copy()
 
-        self.logger.info(f"Historical sample size: {len(self.historical_df)}; Application sample size: {len(self.application_df)}")
 
         # Validate segments
         if self.historical_df.empty:
@@ -302,8 +315,6 @@ class PortfolioSimulator:
             )
 
         # Further segment application sample into new and existing clients
-        self.logger.info("Segmenting application sample into new and existing clients.")
-
         historical_ids = set(self.historical_df[self.loan_id_col].unique())
         application_ids = set(self.application_df[self.loan_id_col].unique())
 
@@ -316,8 +327,6 @@ class PortfolioSimulator:
         self.new_clients_df = self.application_df[
             self.application_df[self.loan_id_col].isin(new_client_ids)
         ].copy()
-
-        self.logger.info(f"Existing clients: {len(self.existing_clients_df)}, New clients: {len(self.new_clients_df)}")
 
         # Calculate default rates for later use
         self.defaulted_facility_ids = set(
@@ -401,7 +410,6 @@ class PortfolioSimulator:
         self.historical_df['simulated_score'] = norm.cdf(conditional_z)
         
         # Map scores to ratings
-        self.logger.info("Mapping simulated scores to ratings for historical sample.")
         self.historical_df['simulated_rating'] = self._apply_score_bounds_to_ratings(
             self.historical_df['simulated_score']
         )
@@ -411,7 +419,6 @@ class PortfolioSimulator:
     
     def _calculate_migration_matrix(self):
         """Calculate migration matrix from historical simulated ratings."""
-        self.logger.info("Calculating migration matrix from historical simulated ratings.")
         self.simulated_migration_matrix = calculate_migration_matrix(
             self.historical_df,
             id_col=self.loan_id_col,
@@ -428,7 +435,6 @@ class PortfolioSimulator:
                            If False, calculate only for observed ratings.
         """
         if use_simulated:
-            self.logger.info("Calculating long-term average PD from simulated ratings.")
             # Calculate simulated PDs
             simulated_pd = self.historical_df.groupby([self.date_col, 'simulated_rating'])[self.into_default_flag_col].mean()
             self.simulated_pd_lra = simulated_pd.groupby('simulated_rating').mean().to_dict()
@@ -436,7 +442,6 @@ class PortfolioSimulator:
             # Ensure default rating has PD of 1.0
             self.simulated_pd_lra[self.default_rating] = 1.0
         else:
-            self.logger.info("Calculating long-term average PD from observed ratings.")
             # Calculate observed PDs
             observed_pd = self.historical_df.groupby([self.date_col, self.rating_col])[self.into_default_flag_col].mean()
             self.observed_pd_lra = observed_pd.groupby(self.rating_col).mean().to_dict()
@@ -448,8 +453,6 @@ class PortfolioSimulator:
         """Simulate ratings for new clients."""
         if self.new_clients_df.empty:
             return pd.DataFrame()
-        
-        self.logger.info("Simulating new client scores and ratings.")
         
         # Copy the dataframe to avoid modifying the original
         new_clients_df = self.new_clients_df.copy()
@@ -487,8 +490,6 @@ class PortfolioSimulator:
         """Simulate ratings for existing clients."""
         if self.existing_clients_df.empty:
             return pd.DataFrame()
-        
-        self.logger.info("Simulating existing client rating migrations.")
         
         # Copy the dataframe to avoid modifying the original
         existing_clients_df = self.existing_clients_df.copy()
