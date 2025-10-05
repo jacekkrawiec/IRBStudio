@@ -61,17 +61,15 @@ class SAMortgageCalculator(BaseRWACalculator):
             'unsecured_portion', 'secured_rwa', and 'unsecured_rwa' columns.
         """
         self.validate_inputs(portfolio_df, self.required_columns)
-        
-        # Create a copy to avoid modifying the original
-        result_df = portfolio_df.copy()
+
+        # Not creating copy as this is run only once.
+        result_df = portfolio_df
         
         # Calculate threshold for the secured portion (55% of property value)
         result_df['secured_threshold'] = result_df['property_value'] * self.property_value_threshold
         
         # Split exposure into secured and unsecured portions
-        result_df['secured_portion'] = result_df.apply(
-            lambda row: min(row['exposure'], row['secured_threshold']), axis=1
-        )
+        result_df['secured_portion'] = np.minimum(result_df['exposure'], result_df['secured_threshold'])
         result_df['unsecured_portion'] = result_df['exposure'] - result_df['secured_portion']
         
         # Calculate RWA for each portion
@@ -102,7 +100,7 @@ class SAMortgageCalculator(BaseRWACalculator):
         result_df = self.calculate_rw(portfolio_df)
         return result_df
     
-    def calculate(self, portfolio_df: pd.DataFrame) -> RWAResult:
+    def calculate(self, portfolio_df: pd.DataFrame, store_full_portfolio: bool = True) -> RWAResult:
         """
         Calculate RWA and return a structured result.
         
@@ -110,6 +108,8 @@ class SAMortgageCalculator(BaseRWACalculator):
         
         Args:
             portfolio_df: DataFrame containing the portfolio data.
+            store_full_portfolio: Whether to store the full portfolio in the result.
+                                If False, only essential columns will be stored.
             
         Returns:
             RWAResult object with portfolio, summary, and metadata.
@@ -149,5 +149,11 @@ class SAMortgageCalculator(BaseRWACalculator):
             })
         
         self.logger.info(f"SA RWA calculation completed. Total RWA: {summary['total_rwa']:,.2f}")
+        
+        # If not storing full portfolio, only keep essential columns
+        if not store_full_portfolio:
+            essential_cols = ['rwa', 'risk_weight', 'exposure']
+            available_cols = set(result_df.columns) & set(essential_cols)
+            result_df = result_df[list(available_cols)]
         
         return RWAResult(result_df, summary, metadata)

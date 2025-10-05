@@ -38,6 +38,24 @@ class BaseRWACalculator(ABC):
             DataFrame with original data plus a 'risk_weight' column.
         """
         pass
+        
+    def calculate(self, portfolio_df: pd.DataFrame, store_full_portfolio: bool = False) -> 'RWAResult':
+        """
+        Calculate RWA and return a structured result.
+        
+        This is a convenience method that wraps calculate_rwa() and summarize_rwa().
+        Subclasses should override this to add specialized logic.
+        
+        Args:
+            portfolio_df: DataFrame containing the portfolio data.
+            store_full_portfolio: If True, store the complete portfolio DataFrame.
+                                 If False (default), only store essential columns to
+                                 reduce memory usage in large-scale Monte Carlo simulations.
+            
+        Returns:
+            RWAResult object with portfolio, summary, and metadata.
+        """
+        raise NotImplementedError("Subclasses must implement calculate()")
     
     @abstractmethod
     def calculate_rwa(self, 
@@ -161,12 +179,16 @@ class RWAResult:
     making it easier to process and compare results from different approaches.
     Supports breakdowns by rating, segment, date, or any other fields specified
     in the summary dictionary.
+    
+    To reduce memory usage in large-scale Monte Carlo simulations, this class
+    supports storing only essential columns from the portfolio DataFrame.
     """
     
     def __init__(self, 
                  portfolio_with_rwa: pd.DataFrame,
                  summary: Dict[str, Any],
-                 metadata: Optional[Dict[str, Any]] = None):
+                 metadata: Optional[Dict[str, Any]] = None,
+                 store_full_portfolio: bool = False):
         """
         Initialize with calculation results.
         
@@ -175,10 +197,29 @@ class RWAResult:
             summary: Dictionary with summary statistics. Can include nested
                     dictionaries with breakdowns by rating, segment, date, etc.
             metadata: Optional metadata about the calculation.
+            store_full_portfolio: If True, store the complete portfolio DataFrame.
+                                 If False (default), only store essential columns to
+                                 reduce memory usage in large-scale Monte Carlo simulations.
         """
-        self.portfolio = portfolio_with_rwa
         self.summary = summary
         self.metadata = metadata or {}
+        
+        # Store only essential columns unless full portfolio is requested
+        if portfolio_with_rwa is not None:
+            if not store_full_portfolio:
+                # Only store key columns needed for analysis
+                essential_cols = ['rwa', 'risk_weight', 'exposure']
+                
+                # Add id/grouping columns if they exist
+                for col in ['date', 'reporting_date', 'rating', 'segment', 'id']:
+                    if col in portfolio_with_rwa.columns:
+                        essential_cols.append(col)
+                        
+                self.portfolio = portfolio_with_rwa[essential_cols].copy()
+            else:
+                self.portfolio = portfolio_with_rwa.copy()
+        else:
+            self.portfolio = None
     
     @property
     def total_rwa(self) -> float:

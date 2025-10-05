@@ -52,9 +52,8 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         """
         self.validate_inputs(portfolio_df, self.required_columns)
         
-        # Create a copy to avoid modifying the original
-        result_df = portfolio_df.copy()
-        
+        # Not creating copy as this is run only once.
+        result_df = portfolio_df
         # Ensure PD is between 0 and 1, and not exactly 0 or 1 (for numerical stability)
         # applies floor from CRR3 (0.05%)
         result_df['pd'] = result_df['pd'].clip(0.0005, 0.9999)
@@ -71,7 +70,7 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         sqrt_R_div_1_minus_R = np.sqrt(R / (1 - R))
         
         # Normal inverse of PD
-        norm_inverse_pd = norm.ppf(result_df['pd'])
+        norm_inverse_pd = norm.ppf(result_df['pd'].unique())
         
         # Normal inverse of confidence level (usually 0.999)
         norm_inverse_conf = norm.ppf(self.confidence_level)
@@ -81,10 +80,12 @@ class AIRBMortgageCalculator(BaseRWACalculator):
             (norm_inverse_pd / sqrt_1_minus_R) + 
             (sqrt_R_div_1_minus_R * norm_inverse_conf)
         )
+
+        result_df['N_term'] = result_df['pd'].map(dict(zip(result_df['pd'].unique(), N_term)))
         
         # Calculate risk weight as a percentage
-        result_df['risk_weight'] = result_df['lgd'] * N_term
-        
+        result_df['risk_weight'] = result_df['lgd'] * result_df['N_term']
+
         # For regulatory reporting, multiply by 12.5 (reciprocal of 8% minimum capital)
         result_df['risk_weight'] = result_df['risk_weight'] * 12.5
         
@@ -114,7 +115,7 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         
         return result_df
     
-    def calculate(self, portfolio_df: pd.DataFrame) -> RWAResult:
+    def calculate(self, portfolio_df: pd.DataFrame, store_full_portfolio: bool = False) -> RWAResult:
         """
         Calculate RWA and return a structured result.
         
@@ -122,6 +123,9 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         
         Args:
             portfolio_df: DataFrame containing the portfolio data.
+            store_full_portfolio: If True, store the complete portfolio DataFrame.
+                                 If False (default), only store essential columns to
+                                 reduce memory usage in large-scale Monte Carlo simulations.
             
         Returns:
             RWAResult object with portfolio, summary, and metadata.
@@ -146,4 +150,4 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         
         self.logger.info(f"AIRB RWA calculation completed. Total RWA: {summary['total_rwa']:,.2f}")
         
-        return RWAResult(result_df, summary, metadata)
+        return RWAResult(result_df, summary, metadata, store_full_portfolio)

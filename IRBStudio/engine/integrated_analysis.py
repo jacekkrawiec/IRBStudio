@@ -116,7 +116,8 @@ class IntegratedAnalysis:
                     portfolio_filter: Optional[Callable] = None,
                     random_seed: Optional[int] = None,
                     memory_efficient: bool = True,
-                    process_all_dates: bool = False) -> Dict[str, Any]:
+                    process_all_dates: bool = False,
+                    store_full_portfolio: bool = False) -> Dict[str, Any]:
         """
         Run Monte Carlo simulation and calculate RWA for a scenario.
         
@@ -131,6 +132,8 @@ class IntegratedAnalysis:
                              storing entire DataFrames in memory (recommended for large datasets)
             process_all_dates: If True, process all dates in the simulation instead of only
                                the most recent date. Useful for time series analysis.
+            store_full_portfolio: If True, store the complete portfolio DataFrame in the RWAResult.
+                                 If False (default), only store essential columns to reduce memory usage.
         
         Returns:
             Dictionary containing simulation results and RWA calculations
@@ -174,6 +177,15 @@ class IntegratedAnalysis:
                     random_seed=random_seed if random_seed is None else random_seed + iteration,
                     memory_efficient=True
                 )[0]
+
+                # Rename PD column if needed
+                pd_column = self.column_mapping['pd']
+                target_pd_column = self.column_mapping['target_pd']
+                
+                if pd_column in sim_df.columns and pd_column != target_pd_column:
+                    if target_pd_column not in sim_df.columns:
+                        sim_df[target_pd_column] = sim_df[pd_column]
+                        sim_df.drop(columns=[pd_column], inplace=True)
                 
                 # Process this simulation with each calculator
                 for calc_name in calculator_names:
@@ -182,14 +194,17 @@ class IntegratedAnalysis:
                     
                     try:
                         # Process simulation DataFrame using the helper method
-                        application_df = self._process_simulation_df(
-                            sim_df=sim_df,
-                            portfolio_filter=portfolio_filter,
-                            process_all_dates=process_all_dates
-                        )
+                        if (portfolio_filter is None) & (process_all_dates):
+                            application_df = sim_df
+                        else:
+                            application_df = self._process_simulation_df(
+                                sim_df=sim_df,
+                                portfolio_filter=portfolio_filter,
+                                process_all_dates=process_all_dates
+                            )
                         
-                        # Calculate RWA
-                        result = calculator.calculate(application_df)
+                        # Calculate RWA with memory optimization
+                        result = calculator.calculate(application_df, store_full_portfolio=store_full_portfolio)
                         self.results[scenario_name]['calculator_results'][calc_name]['results'].append(result)
                         
                     except Exception as e:
@@ -235,8 +250,8 @@ class IntegratedAnalysis:
                             process_all_dates=process_all_dates
                         )
                         
-                        # Calculate RWA
-                        result = calculator.calculate(application_df)
+                        # Calculate RWA with memory optimization
+                        result = calculator.calculate(application_df, store_full_portfolio=store_full_portfolio)
                         rwa_results.append(result)
                         
                     except Exception as e:
@@ -447,13 +462,5 @@ class IntegratedAnalysis:
         # Apply additional filtering if provided
         if portfolio_filter:
             processed_df = portfolio_filter(processed_df)
-        
-        # Rename PD column if needed
-        pd_column = self.column_mapping['pd']
-        target_pd_column = self.column_mapping['target_pd']
-        
-        if pd_column in processed_df.columns and pd_column != target_pd_column:
-            if target_pd_column not in processed_df.columns:
-                processed_df.rename(columns={pd_column: target_pd_column}, inplace=True)
         
         return processed_df
