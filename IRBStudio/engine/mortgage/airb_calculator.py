@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from scipy.special import ndtr, ndtri
 from typing import Dict, Any, List, Optional, Union
 
 from irbstudio.engine.base import BaseRWACalculator, RWAResult
@@ -70,13 +71,13 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         sqrt_R_div_1_minus_R = np.sqrt(R / (1 - R))
         
         # Normal inverse of PD
-        norm_inverse_pd = norm.ppf(result_df['pd'].unique())
+        norm_inverse_pd = ndtri(result_df['pd'].unique())
         
         # Normal inverse of confidence level (usually 0.999)
-        norm_inverse_conf = norm.ppf(self.confidence_level)
-        
+        norm_inverse_conf = ndtri(self.confidence_level)
+
         # Core AIRB formula
-        N_term = norm.cdf(
+        N_term = ndtr(
             (norm_inverse_pd / sqrt_1_minus_R) + 
             (sqrt_R_div_1_minus_R * norm_inverse_conf)
         )

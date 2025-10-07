@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Optional, List, Union, Tuple
 from pandas.tseries.offsets import DateOffset
 from scipy.stats import norm, beta
+from scipy.special import ndtr
 import time
 
 from irbstudio.simulation.distribution import BetaMixtureFitter
@@ -101,7 +102,9 @@ class PortfolioSimulator:
         self.portfolio_df = portfolio_df.copy()
         self.portfolio_df[self.date_col] = pd.to_datetime(self.portfolio_df[self.date_col])
         self.portfolio_df = self.portfolio_df.sort_values(by=[self.loan_id_col, self.date_col])
-        
+        self.portfolio_df[self.loan_id_col], self.mapping_facility_ids = pd.factorize(self.portfolio_df[self.loan_id_col])
+        # self.portfolio_df[self.date_col], self.mapping_dates = pd.factorize(self.portfolio_df[self.date_col])
+
         # Status flags
         self.is_prepared = False
         
@@ -189,6 +192,14 @@ class PortfolioSimulator:
         start_time = time.time()
         self.logger.info("Starting portfolio simulation iteration.")
         
+        # Here we should estimate gamma to match target AUC if provided
+        if self.target_auc is not None and 0.5 <= self.target_auc < 1.0:
+            self.gamma = self.beta_mixture.calibrate_for_auc(self.target_auc)
+        else:
+            # Default gamma of 2.0 provides a reasonable separation when no target is specified
+            self.gamma = 2.0
+            self.logger.info(f"No valid target AUC provided. Using default gamma of {self.gamma}.")
+
         # Generate simulated ratings for historical data
         self._simulate_historical_ratings()
         
@@ -367,14 +378,6 @@ class PortfolioSimulator:
             clipped_scores = non_default_scores.clip(0.001, 0.999).values
             self.beta_mixture.fit(clipped_scores)
             self.logger.info("Unsupervised fitting of Beta Mixture Model succeeded.")
-        
-        # Calculate calibration factor if target AUC is provided
-        if self.target_auc is not None and 0.5 <= self.target_auc < 1.0:
-            self.gamma = self.beta_mixture.calibrate_for_auc(self.target_auc)
-        else:
-            # Default gamma of 2.0 provides a reasonable separation when no target is specified
-            self.gamma = 2.0
-            self.logger.info(f"No valid target AUC provided. Using default gamma of {self.gamma}.")
     
     def _simulate_historical_ratings(self):
         """Generate simulated ratings for historical data."""
@@ -385,29 +388,32 @@ class PortfolioSimulator:
             self.num_non_defaulted_facilities, 
             self.num_defaulted_facilities
         )
+
+        scores_good = norm.ppf(scores_good)
+        scores_bad = norm.ppf(scores_bad)
+
+        nd_scores_dict = pd.Series(index=self.non_defaulted_facility_ids, data=scores_good)
+        d_scores_dict = pd.Series(index=self.defaulted_facility_ids, data=scores_bad)
         
-        nd_scores_dict = dict(zip(self.non_defaulted_facility_ids, scores_good))
-        d_scores_dict = dict(zip(self.defaulted_facility_ids, scores_bad))
-        
-        self.historical_df['idiosyncratic_score'] = np.nan
         mask_default = self.historical_df[self.into_default_flag_col] == 1
-        mask_non_default = self.historical_df[self.into_default_flag_col] == 0
         
+        self.historical_df['idiosyncratic_score'] = (
+            self.historical_df[self.loan_id_col].map(nd_scores_dict)
+        )
+
         self.historical_df.loc[mask_default, 'idiosyncratic_score'] = (
             self.historical_df.loc[mask_default, self.loan_id_col].map(d_scores_dict)
         )
-        self.historical_df.loc[mask_non_default, 'idiosyncratic_score'] = (
-            self.historical_df.loc[mask_non_default, self.loan_id_col].map(nd_scores_dict)
-        )
+        
         
         # Map systemic factor to historical data (systemic factor was calculated in prepare_simulation)
         self.historical_df['systemic_factor'] = self.historical_df[self.date_col].map(self.systemic_factor.to_dict())
         
         # Calculate simulated scores using Merton model
-        idiosyncratic_factor = norm.ppf(self.historical_df['idiosyncratic_score'])
+        idiosyncratic_factor = self.historical_df['idiosyncratic_score']
         R = self.asset_correlation
         conditional_z = (idiosyncratic_factor + np.sqrt(R) * self.historical_df['systemic_factor']) / np.sqrt(1 - R)
-        self.historical_df['simulated_score'] = norm.cdf(conditional_z)
+        self.historical_df['simulated_score'] = ndtr(conditional_z)
         
         # Map scores to ratings
         self.historical_df['simulated_rating'] = self._apply_score_bounds_to_ratings(
@@ -415,8 +421,9 @@ class PortfolioSimulator:
         )
         
         # Clean up temporary columns
-        self.historical_df.drop(columns=['idiosyncratic_score', 'systemic_factor'], inplace=True)
-    
+        del self.historical_df['idiosyncratic_score']
+        del self.historical_df['systemic_factor']
+
     def _calculate_migration_matrix(self):
         """Calculate migration matrix from historical simulated ratings."""
         self.simulated_migration_matrix = calculate_migration_matrix(
@@ -436,14 +443,14 @@ class PortfolioSimulator:
         """
         if use_simulated:
             # Calculate simulated PDs
-            simulated_pd = self.historical_df.groupby([self.date_col, 'simulated_rating'])[self.into_default_flag_col].mean()
+            simulated_pd = self.historical_df.groupby([self.date_col, 'simulated_rating'], sort=False)[self.into_default_flag_col].mean()
             self.simulated_pd_lra = simulated_pd.groupby('simulated_rating').mean().to_dict()
             
             # Ensure default rating has PD of 1.0
             self.simulated_pd_lra[self.default_rating] = 1.0
         else:
             # Calculate observed PDs
-            observed_pd = self.historical_df.groupby([self.date_col, self.rating_col])[self.into_default_flag_col].mean()
+            observed_pd = self.historical_df.groupby([self.date_col, self.rating_col], sort=False)[self.into_default_flag_col].mean()
             self.observed_pd_lra = observed_pd.groupby(self.rating_col).mean().to_dict()
             
             # Ensure default rating has PD of 1.0
@@ -638,6 +645,8 @@ class PortfolioSimulator:
         old_ratings_idx = df[rating_col].map(rating_to_idx).values
         first_obs_mask = ~df.duplicated(subset=[self.loan_id_col], keep='first').values
         loan_ids = df[self.loan_id_col].values
+        max_loan_id = loan_ids.max()
+        min_date = dates.min()
         for date in dates_unique:
             # applies nan to all future dates
             date = np.datetime64(date)
@@ -648,7 +657,7 @@ class PortfolioSimulator:
                 continue
             else:
                 random_values = np.random.rand(n_obs)
-                if date == dates.min():
+                if date == min_date:
                     current_ratings = old_ratings_idx[group_mask] # first date, use old ratings as starting point.
                 else:
                     # use new ratings if available, otherwise old ratings
@@ -690,11 +699,12 @@ class PortfolioSimulator:
                     new_ratings[group_first_obs_mask] = old_ratings_idx[group_first_obs_mask]
                 
                 # Forward fill ratings within each loan
-                loan_id_to_new_rating = dict(zip(loan_ids[group_mask], new_ratings[group_mask]))
+                loan_to_rating_array = np.full(max_loan_id + 1, None, dtype=object)
                 next_date = date + pd.DateOffset(months=1)
                 next_date = next_date.replace(day=1) + pd.offsets.MonthEnd(0)
                 next_date_mask = dates == next_date
-                new_ratings[next_date_mask] = np.array([loan_id_to_new_rating.get(loan_id, None) for loan_id in loan_ids[next_date_mask]])
-                # Set final simulated rating and clean up
+                loan_to_rating_array[loan_ids[group_mask]] = new_ratings[group_mask]
+                new_ratings[next_date_mask] = loan_to_rating_array[loan_ids[next_date_mask]]
+        # Set final simulated rating and clean up
         df['simulated_rating'] = [idx_to_rating[idx] for idx in new_ratings]
         return df
