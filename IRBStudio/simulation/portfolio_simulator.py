@@ -103,7 +103,6 @@ class PortfolioSimulator:
         self.portfolio_df[self.date_col] = pd.to_datetime(self.portfolio_df[self.date_col])
         self.portfolio_df = self.portfolio_df.sort_values(by=[self.loan_id_col, self.date_col])
         self.portfolio_df[self.loan_id_col], self.mapping_facility_ids = pd.factorize(self.portfolio_df[self.loan_id_col])
-        # self.portfolio_df[self.date_col], self.mapping_dates = pd.factorize(self.portfolio_df[self.date_col])
 
         # Status flags
         self.is_prepared = False
@@ -125,7 +124,12 @@ class PortfolioSimulator:
         
         # Initialize logger
         self.logger = get_logger(__name__)
-    
+
+        # precompute sorted bounds and bins for efficient rating assignment
+        self._sorted_rating_bounds = None
+        self._rating_bins = None
+        self._rating_labels = None
+
     def prepare_simulation(self) -> 'PortfolioSimulator':
         """
         Prepare simulation by performing all deterministic steps.
@@ -145,6 +149,9 @@ class PortfolioSimulator:
         # Segment the portfolio
         self._segment_portfolio()
         
+        # Here we should calculate sorted ratings bins, etc. it is possible here as _segment_portfolio defines defaulted rating.
+        self._sort_rating_bounds()
+
         # Fit Beta Mixture Model and prepare calibration factors
         self._fit_beta_mixture()
         
@@ -356,10 +363,22 @@ class PortfolioSimulator:
             self.default_rating = self.defaulted_df.loc[self.defaulted_df[self.default_col] == 1, self.rating_col].unique()[0]
         else:
             self.default_rating = 'D'  # Default fallback if no defaults in the dataset
+     
+    def _sort_rating_bounds(self):
+        """Precompute sorted rating bounds and bins for efficient rating assignment."""
+        rating_bounds = [(rating, bounds) for rating, bounds in self.score_to_rating_bounds.items()
+                         if rating != self.default_rating]
+        rating_bounds.sort(key=lambda x: x[1][0])  # Sort by lower bound
+
+        self._sorted_rating_bounds = rating_bounds
+        self._rating_bins = np.array(
+            [bounds[0] for _, bounds in rating_bounds] + [rating_bounds[-1][1][1]],
+            dtype=np.float64
+        )
+        self._rating_labels = np.array([rating for rating, _ in rating_bounds], dtype=object)
     
     def _fit_beta_mixture(self):
         """Fit Beta Mixture Model to historical scores."""
-        self.logger.info("Fitting Beta Mixture Model to historical scores.")
         self.beta_mixture = BetaMixtureFitter(n_components=2)
         
         fit_df = self.historical_df[[self.score_col, self.into_default_flag_col]].dropna()
@@ -368,7 +387,6 @@ class PortfolioSimulator:
         
         try:
             self.beta_mixture.fit(X_fit, y_fit)
-            self.logger.info("Supervised fitting of Beta Mixture Model succeeded.")
         except Exception as e:
             self.logger.warning(f"Supervised fitting failed: {e}. Falling back to unsupervised.")
             non_default_scores = self.historical_df.loc[self.historical_df[self.default_col] == 0, self.score_col].dropna()
@@ -382,7 +400,6 @@ class PortfolioSimulator:
     def _simulate_historical_ratings(self):
         """Generate simulated ratings for historical data."""
         # Generate idiosyncratic scores
-        self.logger.info("Generating idiosyncratic scores for historical sample.")
         scores_good, scores_bad = self.beta_mixture.generate_calibrated_scores(
             self.gamma, 
             self.num_non_defaulted_facilities, 
@@ -410,10 +427,24 @@ class PortfolioSimulator:
         self.historical_df['systemic_factor'] = self.historical_df[self.date_col].map(self.systemic_factor.to_dict())
         
         # Calculate simulated scores using Merton model
-        idiosyncratic_factor = self.historical_df['idiosyncratic_score']
+        idiosyncratic_factor = self.historical_df['idiosyncratic_score'].values
+        systemic_values = self.historical_df['systemic_factor'].values
         R = self.asset_correlation
-        conditional_z = (idiosyncratic_factor + np.sqrt(R) * self.historical_df['systemic_factor']) / np.sqrt(1 - R)
-        self.historical_df['simulated_score'] = ndtr(conditional_z)
+        conditional_z = (idiosyncratic_factor + np.sqrt(R) * systemic_values) / np.sqrt(1 - R)
+
+        z_min, z_max = -8, 8
+        n_bins = 160000
+        if not hasattr(self, '_ndtr_lookup'):
+            z_bins = np.linspace(z_min, z_max, n_bins)
+            self._ndtr_lookup = ndtr(z_bins)
+            self._z_bins = z_bins
+            self._bin_width = (z_max - z_min) / (n_bins)
+
+        bin_indices = np.clip(
+            ((conditional_z - z_min) / self._bin_width).astype(int),
+            0, n_bins - 1
+        )
+        self.historical_df['simulated_score'] = self._ndtr_lookup[bin_indices]
         
         # Map scores to ratings
         self.historical_df['simulated_rating'] = self._apply_score_bounds_to_ratings(
@@ -469,8 +500,11 @@ class PortfolioSimulator:
         n_new_bad = int(self.bad_proportion * num_new_clients)
         n_new_good = num_new_clients - n_new_bad
         
+        # Check if gamma is None (calibration failed) and use gamma=1.0 as fallback
+        gamma_to_use = self.gamma if self.gamma is not None else 1.0
+        
         new_client_scores_good, new_client_scores_bad = self.beta_mixture.generate_calibrated_scores(
-            self.gamma, 
+            gamma_to_use, 
             n_new_good, 
             n_new_bad
         )
@@ -482,6 +516,31 @@ class PortfolioSimulator:
         # Apply scores and map to ratings
         new_clients_df['simulated_score'] = new_clients_df[self.loan_id_col].map(new_client_score_map)
         new_clients_df['simulated_rating'] = self._apply_score_bounds_to_ratings(new_clients_df['simulated_score'])
+        
+        # CRITICAL FIX: Ensure all new client ratings exist in the migration matrix
+        # If a rating doesn't exist, map it to the nearest available rating
+        migration_ratings = set(self.simulated_migration_matrix.index)
+        new_client_ratings = set(new_clients_df['simulated_rating'].unique())
+        missing_ratings = new_client_ratings - migration_ratings
+        
+        if missing_ratings:
+            # Build a mapping from missing ratings to available ratings
+            rating_mapping = {}
+            all_available_ratings = sorted(migration_ratings, key=lambda x: str(x))
+            
+            for missing_rating in missing_ratings:
+                # Find the closest available rating based on numeric value or string order
+                try:
+                    missing_val = float(missing_rating) if isinstance(missing_rating, str) else missing_rating
+                    available_vals = [float(r) if isinstance(r, str) else r for r in all_available_ratings]
+                    closest_idx = np.argmin([abs(missing_val - av) for av in available_vals])
+                    rating_mapping[missing_rating] = all_available_ratings[closest_idx]
+                except (ValueError, TypeError):
+                    # If conversion to float fails, use the last available rating
+                    rating_mapping[missing_rating] = all_available_ratings[-1]
+            
+            # Apply the mapping
+            new_clients_df['simulated_rating'] = new_clients_df['simulated_rating'].replace(rating_mapping)
         
         # Apply migrations
         new_clients_df = self._apply_migrations_optimized(
@@ -527,32 +586,14 @@ class PortfolioSimulator:
             pd.Series of ratings
         """
         # Filter out default rating if present and sort ratings by their bounds
-        rating_bounds = [(rating, bounds) for rating, bounds in self.score_to_rating_bounds.items() 
-                         if rating != self.default_rating]
-        rating_bounds.sort(key=lambda x: x[1][0])  # Sort by lower bound
-        
-        # Create arrays of bounds and corresponding ratings
-        lower_bounds = np.array([bounds[0] for _, bounds in rating_bounds])
-        upper_bounds = np.array([bounds[1] for _, bounds in rating_bounds])
-        ratings_list = [rating for rating, _ in rating_bounds]
-        
-        # Create a result series initialized with the highest rating
-        # (will be used for scores that don't fall in any defined range)
-        result = pd.Series(ratings_list[-1], index=scores.index)
-        
-        # For each rating (starting from the lowest), assign it to scores within its bounds
-        # We process in reverse order so later (higher) ratings overwrite earlier ones
-        scores_array = scores.values
-        for i in range(len(ratings_list)-1, -1, -1):
-            mask = (scores_array >= lower_bounds[i]) & (scores_array < upper_bounds[i])
-            result[mask] = ratings_list[i]
-        
-        # Handle the edge case for exact match of the maximum bound
-        # Only assign the rating if the score equals the max bound of the highest rating
-        max_value_mask = scores_array == upper_bounds[-1]
-        if np.any(max_value_mask):
-            result[max_value_mask] = ratings_list[-1]
-            
+        if self._sorted_rating_bounds is None or self._rating_bins is None or self._rating_labels is None:
+            self._sort_rating_bounds()            
+        scores_array = scores.values if isinstance(scores, pd.Series) else scores
+        indices = np.searchsorted(self._rating_bins, scores_array, side='right') - 1
+        indices = np.clip(indices, 0, len(self._rating_labels) - 1)
+        result = self._rating_labels[indices]
+        if isinstance(scores, pd.Series):
+            result = pd.Series(result, index=scores.index)
         return result
     
     def _infer_systemic_factor(self) -> pd.Series:
@@ -631,11 +672,32 @@ class PortfolioSimulator:
         Returns:
             DataFrame with simulated ratings
         """
-        # Pre-compute rating mappings
-        rating_to_idx = {rating: idx for idx, rating in enumerate(migration_matrix.index)}
-        idx_to_rating = {idx: rating for rating, idx in rating_to_idx.items()}
+        # Get unique ratings from migration matrix (these are the valid ratings)
+        migration_ratings_list = list(migration_matrix.index)
         
-        # Precompute cumulative probabilities for each rating
+        # Pre-compute rating mappings - map ratings to their index in the migration matrix
+        rating_to_idx = {rating: idx for idx, rating in enumerate(migration_ratings_list)}
+        idx_to_rating = {idx: rating for idx, rating in enumerate(migration_ratings_list)}
+        
+        # Check if there are any ratings in the input that don't exist in migration matrix
+        input_ratings_unique = df[rating_col].unique()
+        missing_ratings = set(input_ratings_unique) - set(migration_ratings_list)
+        
+        if missing_ratings:
+            # Map missing ratings to the nearest available rating in migration matrix
+            # This should not happen if _simulate_new_clients did its job, but adding safety check
+            for missing_rating in missing_ratings:
+                # Find closest rating by trying to convert to numeric and finding nearest
+                try:
+                    missing_val = float(missing_rating)
+                    available_vals = [float(r) for r in migration_ratings_list]
+                    closest_idx = np.argmin([abs(missing_val - av) for av in available_vals])
+                    rating_to_idx[missing_rating] = closest_idx
+                except (ValueError, TypeError):
+                    # If conversion fails, use the first available rating
+                    rating_to_idx[missing_rating] = 0
+        
+        # Precompute cumulative probabilities for each rating in migration matrix
         cum_probs = migration_matrix.cumsum(axis=1).values
 
         # Mark first observation for each loan

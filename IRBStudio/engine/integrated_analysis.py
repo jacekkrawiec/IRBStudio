@@ -167,14 +167,14 @@ class IntegratedAnalysis:
         if memory_efficient:
             # Memory-efficient approach: process one iteration at a time
             # Instead of storing all simulations, we'll run and process them one by one
-            
+            base_seed = random_seed if random_seed is not None else int(time.time() * 1000) % (2**31)
             for iteration in range(n_iterations):
                 # Run a single Monte Carlo iteration in memory-efficient mode
                 # We use run_monte_carlo with memory_efficient=True for consistent interface
                 # The simulator optimizes this internally
                 sim_df = simulator.run_monte_carlo(
                     num_iterations=1, 
-                    random_seed=random_seed if random_seed is None else random_seed + iteration,
+                    random_seed=base_seed + iteration,
                     memory_efficient=True
                 )[0]
 

@@ -290,7 +290,6 @@ class BetaMixtureFitter:
             return current_auc - target_auc
 
         try:
-            logger.info(f"Searching for gamma to achieve target AUC of {target_auc}...")
             calibrated_gamma, result = brentq(
                 objective,
                 a=gamma_bounds[0],
@@ -302,7 +301,6 @@ class BetaMixtureFitter:
                 logger.warning(f"Optimizer did not converge: {result.flag}")
                 return result.root
             
-            logger.info(f"Found calibrated gamma of {calibrated_gamma:.4f}.")
             return calibrated_gamma
         except ValueError:
             # This occurs if the objective function has the same sign at both bounds,
@@ -327,6 +325,10 @@ class BetaMixtureFitter:
         Returns:
             A tuple containing (scores_good, scores_bad).
         """
+        # Safety check: if gamma is None or invalid, use gamma=1.0 (no transformation)
+        if gamma is None or not isinstance(gamma, (int, float)) or gamma <= 0:
+            gamma = 1.0
+        
         # Generate scores for the good population
         base_scores_good = self.sample(n_good)
         scores_good = np.clip(base_scores_good, 1e-9, 1 - 1e-9) ** gamma
