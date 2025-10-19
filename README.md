@@ -399,7 +399,7 @@ The models and calculations provided are simplified representations and may not 
 
 ## 🙏 Acknowledgments
 
-- Fannie Mae for providing the Single-Family Loan Performance dataset
+- Freddie Mac for providing the Single-Family Loan-Level Dataset
 - The Python scientific computing community (NumPy, Pandas, SciPy)
 - The Plotly team for excellent visualization tools
 
