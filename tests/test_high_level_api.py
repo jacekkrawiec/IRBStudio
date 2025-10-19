@@ -520,3 +520,324 @@ class TestRunScenarioComparison:
         assert 'relative_rwa_change' in comparison
         assert isinstance(comparison['absolute_rwa_change'], (int, float))
         assert isinstance(comparison['relative_rwa_change'], (int, float))
+    
+    def test_run_scenario_comparison_with_calculators(
+        self,
+        tmp_path,
+        small_portfolio_df
+    ):
+        """Test run_scenario_comparison() with specific calculator types."""
+        config_dict = {
+            'scenarios': [
+                {
+                    'name': 'Baseline',
+                    'pd_auc': 0.75,
+                    'portfolio_default_rate': 0.02,
+                    'lgd': 0.40,
+                    'rating_pd_map': {'A': 0.005, 'B': 0.015, 'C': 0.030}
+                },
+                {
+                    'name': 'Stress',
+                    'pd_auc': 0.72,
+                    'portfolio_default_rate': 0.04,
+                    'lgd': 0.45,
+                    'rating_pd_map': {'A': 0.010, 'B': 0.025, 'C': 0.050}
+                }
+            ],
+            'regulatory': {
+                'asset_correlation': 0.15,
+                'confidence_level': 0.999
+            },
+            'column_mapping': {
+                'loan_id': 'loan_id',
+                'exposure': 'exposure',
+                'date': 'reporting_date',
+                'default_flag': 'default_flag',
+                'into_default_flag': 'into_default_flag',
+                'rating': 'rating',
+                'score': 'score',
+                'pd': 'pd',
+                'lgd': 'lgd',
+                'maturity': 'maturity',
+                'ltv': 'ltv',
+                'property_value': 'property_value'
+            }
+        }
+        
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        # Test with SA calculator
+        results = run_scenario_comparison(
+            config_path=config_file,
+            portfolio_path=portfolio_file,
+            baseline_scenario='Baseline',
+            comparison_scenarios=['Stress'],
+            calculator='SA',
+            n_iterations=2
+        )
+        
+        assert results['calculator'] == 'SA'
+        assert 'Stress' in results['comparisons']
+    
+    def test_run_scenario_comparison_with_iterations(
+        self,
+        tmp_path,
+        small_portfolio_df
+    ):
+        """Test run_scenario_comparison() with custom iteration count."""
+        config_dict = {
+            'scenarios': [
+                {
+                    'name': 'Baseline',
+                    'pd_auc': 0.75,
+                    'portfolio_default_rate': 0.02,
+                    'lgd': 0.40,
+                    'rating_pd_map': {'A': 0.005, 'B': 0.015, 'C': 0.030}
+                },
+                {
+                    'name': 'Stress',
+                    'pd_auc': 0.70,
+                    'portfolio_default_rate': 0.03,
+                    'lgd': 0.45,
+                    'rating_pd_map': {'A': 0.008, 'B': 0.020, 'C': 0.040}
+                }
+            ],
+            'regulatory': {
+                'asset_correlation': 0.15,
+                'confidence_level': 0.999
+            },
+            'column_mapping': {
+                'loan_id': 'loan_id',
+                'exposure': 'exposure',
+                'date': 'reporting_date',
+                'default_flag': 'default_flag',
+                'into_default_flag': 'into_default_flag',
+                'rating': 'rating',
+                'score': 'score',
+                'pd': 'pd',
+                'lgd': 'lgd',
+                'maturity': 'maturity'
+            }
+        }
+        
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        results = run_scenario_comparison(
+            config_path=config_file,
+            portfolio_path=portfolio_file,
+            baseline_scenario='Baseline',
+            comparison_scenarios=['Stress'],
+            calculator='AIRB',
+            n_iterations=5
+        )
+        
+        # Verify results structure
+        assert results is not None
+        assert 'Stress' in results['comparisons']
+        comparison = results['comparisons']['Stress']
+        assert 'baseline_mean_rwa' in comparison
+        assert 'scenario_mean_rwa' in comparison
+    
+    def test_run_scenario_comparison_invalid_baseline(
+        self,
+        tmp_path,
+        small_portfolio_df
+    ):
+        """Test run_scenario_comparison() with invalid baseline scenario name."""
+        config_dict = {
+            'scenarios': [
+                {
+                    'name': 'Baseline',
+                    'pd_auc': 0.75,
+                    'portfolio_default_rate': 0.02,
+                    'lgd': 0.40,
+                    'rating_pd_map': {'A': 0.005, 'B': 0.015, 'C': 0.030}
+                }
+            ],
+            'regulatory': {
+                'asset_correlation': 0.15,
+                'confidence_level': 0.999
+            },
+            'column_mapping': {
+                'loan_id': 'loan_id',
+                'exposure': 'exposure',
+                'date': 'reporting_date',
+                'default_flag': 'default_flag',
+                'into_default_flag': 'into_default_flag',
+                'rating': 'rating',
+                'score': 'score',
+                'pd': 'pd',
+                'lgd': 'lgd',
+                'maturity': 'maturity'
+            }
+        }
+        
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        with pytest.raises((ValueError, KeyError)):
+            run_scenario_comparison(
+                config_path=config_file,
+                portfolio_path=portfolio_file,
+                baseline_scenario='NonExistent',
+                comparison_scenarios=['Baseline'],
+                calculator='AIRB',
+                n_iterations=2
+            )
+    
+    def test_run_scenario_comparison_invalid_alternative(
+        self,
+        tmp_path,
+        small_portfolio_df,
+        caplog
+    ):
+        """Test run_scenario_comparison() with invalid comparison scenario name."""
+        config_dict = {
+            'scenarios': [
+                {
+                    'name': 'Baseline',
+                    'pd_auc': 0.75,
+                    'portfolio_default_rate': 0.02,
+                    'lgd': 0.40,
+                    'rating_pd_map': {'A': 0.005, 'B': 0.015, 'C': 0.030}
+                }
+            ],
+            'regulatory': {
+                'asset_correlation': 0.15,
+                'confidence_level': 0.999
+            },
+            'column_mapping': {
+                'loan_id': 'loan_id',
+                'exposure': 'exposure',
+                'date': 'reporting_date',
+                'default_flag': 'default_flag',
+                'into_default_flag': 'into_default_flag',
+                'rating': 'rating',
+                'score': 'score',
+                'pd': 'pd',
+                'lgd': 'lgd',
+                'maturity': 'maturity'
+            }
+        }
+        
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        # Function handles gracefully with warning
+        results = run_scenario_comparison(
+            config_path=config_file,
+            portfolio_path=portfolio_file,
+            baseline_scenario='Baseline',
+            comparison_scenarios=['NonExistent'],
+            calculator='AIRB',
+            n_iterations=2
+        )
+        
+        # Should log warning and skip missing scenario
+        assert "not found" in caplog.text or "NonExistent" in caplog.text
+        assert 'comparisons' in results
+        # Missing scenario should not be in comparisons
+        assert 'NonExistent' not in results['comparisons']
+    
+    def test_run_scenario_comparison_same_config(
+        self,
+        tmp_path,
+        small_portfolio_df
+    ):
+        """Test run_scenario_comparison() comparing identical scenarios."""
+        config_dict = {
+            'scenarios': [
+                {
+                    'name': 'Baseline',
+                    'pd_auc': 0.75,
+                    'portfolio_default_rate': 0.02,
+                    'lgd': 0.40,
+                    'rating_pd_map': {'A': 0.005, 'B': 0.015, 'C': 0.030}
+                }
+            ],
+            'regulatory': {
+                'asset_correlation': 0.15,
+                'confidence_level': 0.999
+            },
+            'column_mapping': {
+                'loan_id': 'loan_id',
+                'exposure': 'exposure',
+                'date': 'reporting_date',
+                'default_flag': 'default_flag',
+                'into_default_flag': 'into_default_flag',
+                'rating': 'rating',
+                'score': 'score',
+                'pd': 'pd',
+                'lgd': 'lgd',
+                'maturity': 'maturity'
+            }
+        }
+        
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        results = run_scenario_comparison(
+            config_path=config_file,
+            portfolio_path=portfolio_file,
+            baseline_scenario='Baseline',
+            comparison_scenarios=['Baseline'],
+            calculator='AIRB',
+            n_iterations=2
+        )
+        
+        # Should succeed but show minimal differences
+        comparison = results['comparisons']['Baseline']
+        assert 'absolute_rwa_change' in comparison
+        # Changes should be close to zero (allowing for Monte Carlo variation)
+        assert abs(comparison['absolute_rwa_change']) < comparison['baseline_mean_rwa'] * 0.1
+
+
+class TestRunAnalysisExecutionTimeTracking:
+    """Tests for execution time tracking in run_analysis()."""
+    
+    def test_run_analysis_execution_time_tracking(
+        self,
+        tmp_path,
+        small_portfolio_df,
+        sample_config_dict
+    ):
+        """Test run_analysis() captures execution time metrics."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(sample_config_dict, f)
+        
+        portfolio_file = tmp_path / "portfolio.csv"
+        small_portfolio_df.to_csv(portfolio_file, index=False)
+        
+        results = run_analysis(
+            config_path=config_file,
+            portfolio_path=portfolio_file,
+            n_iterations=2
+        )
+        
+        # Check for execution time metrics
+        assert results is not None
+        # Execution should have completed
+        assert 'results' in results or 'scenarios' in results

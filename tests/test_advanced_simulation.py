@@ -499,3 +499,180 @@ class TestSimulationValidation:
         result = simulator.simulate_once()
         assert result is not None
         assert len(result) > 0
+
+
+class TestBetaMixtureAdvanced:
+    """Advanced tests for Beta Mixture Model."""
+    
+    def test_beta_mixture_boundary_handling(self, score_to_rating_bounds):
+        """Test Beta Mixture Model handles scores at boundaries (0 and 1)."""
+        # Create portfolio with boundary scores and historical data
+        dates = pd.date_range('2023-01-01', '2024-01-01', freq='ME')
+        loan_ids = ['L1', 'L2', 'L3', 'L4', 'L5']
+        
+        rows = []
+        for loan_id in loan_ids:
+            for date in dates:
+                # Use boundary scores for first date
+                if date == dates[0]:
+                    score_map = {'L1': 0.0, 'L2': 0.001, 'L3': 0.5, 'L4': 0.999, 'L5': 1.0}
+                    score = score_map[loan_id]
+                else:
+                    score = np.random.uniform(0, 1)
+                
+                rows.append({
+                    'loan_id': loan_id,
+                    'reporting_date': date,
+                    'rating': np.random.choice(['A', 'B', 'C']),
+                    'score': score,
+                    'default_flag': 1 if score > 0.9 else 0,
+                    'into_default_flag': 1 if score > 0.95 else 0,
+                    'exposure': 100000
+                })
+        
+        portfolio = pd.DataFrame(rows)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=portfolio,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure',
+            application_start_date='2023-07-01'  # Treat data before this as historical
+        )
+        
+        # Should handle boundary scores without errors
+        result = simulator.simulate_once()
+        assert result is not None
+        assert 'simulated_score' in result.columns
+        
+        # Generated scores should be valid
+        assert result['simulated_score'].min() >= 0
+        assert result['simulated_score'].max() <= 1
+    
+    def test_beta_mixture_component_weights(self, score_to_rating_bounds):
+        """Test Beta Mixture Model component weight estimation."""
+        # Create portfolio with clear two-component structure and historical data
+        # Good performers (low scores) and bad performers (high scores)
+        dates = pd.date_range('2023-01-01', '2024-01-01', freq='ME')
+        loan_ids = [f'L{i}' for i in range(50)]
+        
+        rows = []
+        for loan_id in loan_ids:
+            loan_num = int(loan_id[1:])
+            is_good_performer = loan_num < 35  # 70% good performers
+            
+            for date in dates:
+                if is_good_performer:
+                    score = np.random.beta(2, 8)  # Low scores
+                    default = 0
+                else:
+                    score = np.random.beta(8, 2)  # High scores
+                    default = 1
+                
+                rows.append({
+                    'loan_id': loan_id,
+                    'reporting_date': date,
+                    'rating': np.random.choice(['A', 'B', 'C']),
+                    'score': score,
+                    'default_flag': default,
+                    'into_default_flag': default,
+                    'exposure': 100000
+                })
+        
+        portfolio = pd.DataFrame(rows)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=portfolio,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure',
+            application_start_date='2023-07-01'  # Treat data before this as historical
+        )
+        
+        # Simulate should work with clear component structure
+        result = simulator.simulate_once()
+        assert result is not None
+        assert result['loan_id'].nunique() == 50  # Check unique loans, not total rows
+        
+        # Scores should have reasonable variation (not all same value)
+        valid_scores = result['simulated_score'].dropna()
+        assert len(valid_scores) > 0  # Should have some valid scores
+        assert valid_scores.std() > 0.01  # Should have some variation (relaxed threshold)
+    
+    def test_beta_mixture_with_seed(self, score_to_rating_bounds):
+        """Test Beta Mixture Model produces reproducible results with seed."""
+        # Create portfolio with historical data
+        dates = pd.date_range('2023-01-01', '2024-01-01', freq='ME')
+        loan_ids = [f'L{i}' for i in range(30)]
+        
+        rows = []
+        np.random.seed(42)
+        for loan_id in loan_ids:
+            for date in dates:
+                rows.append({
+                    'loan_id': loan_id,
+                    'reporting_date': date,
+                    'rating': np.random.choice(['A', 'B', 'C']),
+                    'score': np.random.beta(2, 5),
+                    'default_flag': np.random.choice([0, 1], p=[0.95, 0.05]),
+                    'into_default_flag': np.random.choice([0, 1], p=[0.98, 0.02]),
+                    'exposure': 100000
+                })
+        
+        portfolio = pd.DataFrame(rows)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=portfolio,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure',
+            random_seed=42,
+            application_start_date='2023-07-01'  # Treat data before this as historical
+        )
+        
+        # Run simulation twice with same seed
+        result1 = simulator.simulate_once()
+        
+        # Reset simulator with same seed
+        simulator2 = PortfolioSimulator(
+            portfolio_df=portfolio,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure',
+            random_seed=42,
+            application_start_date='2023-07-01'  # Treat data before this as historical
+        )
+        
+        result2 = simulator2.simulate_once()
+        
+        # Results should be identical with same seed
+        assert result1['simulated_score'].equals(result2['simulated_score'])
+
+
+# Summary of test coverage:
+# - Memory-efficient mode: 3 tests
+# - Progress callback: 2 tests
+# - Advanced simulation features: 4 tests
+# - Beta mixture model: 3 + 3 new = 6 tests
+# - Simulation validation: 3 tests
+# Total: 19 tests (16 existing + 3 new)

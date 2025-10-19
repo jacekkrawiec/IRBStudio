@@ -444,3 +444,161 @@ class TestScenarioComparisonIntegration:
         
         # Delta can be positive, negative, or zero
         assert isinstance(mean_delta, (int, float))
+
+
+class TestAdvancedIntegration:
+    """Test advanced integration scenarios."""
+    
+    def test_integration_calculator_to_reporting(
+        self,
+        small_portfolio_df
+    ):
+        """Test calculator output works with reporting functions."""
+        from irbstudio.reporting.dashboard import (
+            create_rwa_distribution_plot,
+            create_summary_table
+        )
+        
+        # Calculate RWA
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'lgd': 0.25,
+                'maturity_years': 2.5,
+                'scaling_factor': 1.06
+            }
+        )
+        
+        # Run multiple iterations for distribution
+        results = []
+        for i in range(10):
+            result = calculator.calculate(small_portfolio_df)
+            results.append(result)
+        
+        # Extract RWA values for plotting
+        rwa_values = [r.summary['total_rwa'] for r in results]
+        
+        # Should work with reporting functions - package in expected format
+        results_dict = {
+            'test': {
+                'AIRB': {
+                    'rwa_values': rwa_values
+                }
+            }
+        }
+        
+        fig = create_rwa_distribution_plot(
+            results=results_dict,
+            scenario_name='test',
+            calculator_name='AIRB'
+        )
+        assert fig is not None
+        
+        # Summary table - use IntegratedAnalysis results format
+        mock_results = {
+            'baseline': {
+                'AIRB': {
+                    'results': results,
+                    'rwa_values': rwa_values
+                }
+            }
+        }
+        table = create_summary_table(mock_results)
+        assert table is not None
+    
+    def test_integration_config_to_execution(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test configuration object drives execution."""
+        # Create config-like structure
+        config_params = {
+            'lgd': 0.25,
+            'maturity_years': 2.5,
+            'scaling_factor': 1.06,
+            'asset_correlation': 0.15
+        }
+        
+        # Use config in calculator
+        calculator = AIRBMortgageCalculator(
+            regulatory_params=config_params
+        )
+        
+        # Use config in simulator
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            asset_correlation=config_params['asset_correlation']
+        )
+        
+        # Execute integrated workflow
+        simulated = simulator.simulate_once(random_seed=42)
+        result = calculator.calculate(simulated)
+        
+        assert result is not None
+        assert result.summary['total_rwa'] > 0
+    
+    def test_integration_e2e_with_date_breakdown(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test end-to-end with date breakdown enabled."""
+        # Ensure we have date column
+        assert 'reporting_date' in small_portfolio_df.columns
+        
+        # Create analysis with date handling
+        analysis = IntegratedAnalysis(date_column='reporting_date')
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'lgd': 0.25,
+                'maturity_years': 2.5,
+                'scaling_factor': 1.06
+            }
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score'
+        )
+        
+        analysis.add_scenario('baseline', simulator, n_iterations=5)
+        
+        # Run with process_all_dates=True
+        results = analysis.run_scenario(
+            'baseline',
+            process_all_dates=True,
+            random_seed=42
+        )
+        
+        assert results is not None
+        assert 'calculator_results' in results
+        
+        # Check if date breakdown available
+        calc_results = results['calculator_results']['AIRB']['results']
+        if len(calc_results) > 0:
+            first_result = calc_results[0]
+            # Date breakdown might be in by_date or similar
+            assert hasattr(first_result, 'summary')
+
+
+# Summary of integration test coverage:
+# - End-to-end workflows: 4 tests
+# - Module integration: 4 tests  
+# - Scenario comparison: 2 tests
+# - Advanced integration: 3 tests (NEW)
+# Total: 13 integration tests

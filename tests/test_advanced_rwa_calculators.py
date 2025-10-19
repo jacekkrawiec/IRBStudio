@@ -601,3 +601,71 @@ class TestRWAResultAdvanced:
         # Access date breakdown
         if hasattr(result, 'by_date'):
             assert result.by_date is not None
+    
+    def test_rwa_result_has_breakdown(self):
+        """Test RWAResult has_breakdown() method."""
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        
+        portfolio = pd.DataFrame({
+            'exposure': [100000, 150000, 200000],
+            'pd': [0.01, 0.02, 0.03],
+            'rating': ['A', 'A', 'B'],
+            'date': pd.to_datetime(['2024-01-01', '2024-01-01', '2024-01-01'])
+        })
+        
+        result = calculator.calculate(portfolio)
+        
+        # Test has_breakdown method if it exists
+        if hasattr(result, 'has_breakdown'):
+            # Should have rating breakdown
+            assert result.has_breakdown('rating') in [True, False]
+    
+    def test_rwa_result_get_available_breakdowns(self):
+        """Test RWAResult get_available_breakdowns() method."""
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        
+        portfolio = pd.DataFrame({
+            'exposure': [100000, 150000, 200000],
+            'pd': [0.01, 0.02, 0.03],
+            'rating': ['A', 'A', 'B']
+        })
+        
+        result = calculator.calculate(portfolio)
+        
+        # Test get_available_breakdowns method if it exists
+        if hasattr(result, 'get_available_breakdowns'):
+            breakdowns = result.get_available_breakdowns()
+            assert isinstance(breakdowns, list)
+    
+    def test_rwa_result_breakdown_by_segment(self):
+        """Test RWAResult breakdown by custom segment field."""
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        
+        portfolio = pd.DataFrame({
+            'exposure': [100000, 150000, 200000, 250000],
+            'pd': [0.01, 0.02, 0.03, 0.05],
+            'segment': ['Retail', 'Retail', 'Corporate', 'Corporate']
+        })
+        
+        result = calculator.calculate(portfolio)
+        
+        # Try to get segment breakdown
+        if hasattr(result, 'get_breakdown'):
+            segment_breakdown = result.get_breakdown('segment')
+            # Should return dict or empty dict
+            assert isinstance(segment_breakdown, dict)

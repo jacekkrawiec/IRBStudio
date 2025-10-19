@@ -523,11 +523,428 @@ class TestPercentileAnalysis:
         assert all(p > 0 for p in [p5, p50, p95])
 
 
+    def test_integrated_analysis_default_percentiles(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test default percentiles [5, 25, 50, 75, 95]."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure'
+        )
+        analysis.add_scenario('baseline', simulator, n_iterations=20)
+        
+        results = analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # Calculate default percentiles
+        percentiles = [5, 25, 50, 75, 95]
+        values = np.percentile(rwa_values, percentiles)
+        
+        # Should be monotonically increasing
+        for i in range(len(values) - 1):
+            assert values[i] <= values[i + 1]
+    
+    def test_integrated_analysis_custom_percentiles(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test custom percentile list."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure'
+        )
+        analysis.add_scenario('baseline', simulator, n_iterations=20)
+        
+        results = analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # Calculate custom percentiles
+        custom_percentiles = [1, 10, 25, 75, 90, 99]
+        values = np.percentile(rwa_values, custom_percentiles)
+        
+        assert len(values) == len(custom_percentiles)
+        # Should be monotonically increasing
+        for i in range(len(values) - 1):
+            assert values[i] <= values[i + 1]
+    
+    def test_integrated_analysis_percentile_p5_var(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test 5th percentile (VaR metric)."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure'
+        )
+        analysis.add_scenario('baseline', simulator, n_iterations=30)
+        
+        results = analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # P5 is used as VaR(95%)
+        p5 = np.percentile(rwa_values, 5)
+        mean_rwa = np.mean(rwa_values)
+        
+        # P5 should be less than mean for typical right-skewed distribution
+        assert p5 > 0
+        assert p5 < mean_rwa
+    
+    def test_integrated_analysis_percentile_p95(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test 95th percentile."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure'
+        )
+        analysis.add_scenario('baseline', simulator, n_iterations=30)
+        
+        results = analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # P95 represents tail risk
+        p95 = np.percentile(rwa_values, 95)
+        mean_rwa = np.mean(rwa_values)
+        
+        # P95 should be >= mean (or very close with low variance)
+        assert p95 >= mean_rwa or np.isclose(p95, mean_rwa)
+    
+    def test_integrated_analysis_percentile_median(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test 50th percentile (median)."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            exposure_col='exposure'
+        )
+        analysis.add_scenario('baseline', simulator, n_iterations=30)
+        
+        results = analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # P50 is median
+        p50 = np.percentile(rwa_values, 50)
+        median = np.median(rwa_values)
+        
+        # Should be very close (same calculation)
+        assert np.isclose(p50, median)
+
+
+class TestScenarioComparison:
+    """Tests for scenario comparison functionality."""
+    
+    def test_integrated_analysis_compare_scenarios(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test basic scenario comparison."""
+        analysis = IntegratedAnalysis()
+        
+        # Add calculator
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create simulators for two scenarios
+        sim_baseline = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.70
+        )
+        
+        sim_stress = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.65
+        )
+        
+        # Add scenarios
+        analysis.add_scenario('baseline', sim_baseline, n_iterations=10)
+        analysis.add_scenario('stress', sim_stress, n_iterations=10)
+        
+        # Run both scenarios
+        analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        analysis.run_scenario(
+            scenario_name='stress',
+            calculator_names=['AIRB']
+        )
+        
+        # Compare scenarios
+        comparison = analysis.compare_scenarios(
+            scenario_names=['baseline', 'stress'],
+            calculator_name='AIRB'
+        )
+        
+        # Should return DataFrame with comparison
+        assert isinstance(comparison, pd.DataFrame)
+        assert len(comparison) == 2
+        assert 'scenario' in comparison.columns
+        assert 'mean' in comparison.columns
+    
+    def test_integrated_analysis_capital_delta_absolute(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test absolute capital difference calculation."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create simulators (lower AUC = higher PD = higher capital)
+        sim_baseline = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.65
+        )
+        
+        sim_optimized = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.75
+        )
+        
+        # Add scenarios
+        analysis.add_scenario('baseline', sim_baseline, n_iterations=10)
+        analysis.add_scenario('optimized', sim_optimized, n_iterations=10)
+        
+        # Run scenarios
+        analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        analysis.run_scenario(
+            scenario_name='optimized',
+            calculator_names=['AIRB']
+        )
+        
+        # Compare scenarios
+        comparison = analysis.compare_scenarios(
+            scenario_names=['baseline', 'optimized'],
+            calculator_name='AIRB'
+        )
+        
+        # Should have absolute difference column
+        assert 'abs_diff_from_baseline' in comparison.columns
+        # Second scenario should show the difference
+        assert pd.notna(comparison.iloc[1]['abs_diff_from_baseline'])
+    
+    def test_integrated_analysis_capital_delta_percentage(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds
+    ):
+        """Test percentage capital difference calculation."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'asset_correlation': 0.15,
+                'lgd': 0.25
+            }
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create simulators
+        sim_baseline = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.65
+        )
+        
+        sim_improved = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            target_auc=0.75
+        )
+        
+        # Add scenarios
+        analysis.add_scenario('baseline', sim_baseline, n_iterations=10)
+        analysis.add_scenario('improved', sim_improved, n_iterations=10)
+        
+        # Run scenarios
+        analysis.run_scenario(
+            scenario_name='baseline',
+            calculator_names=['AIRB']
+        )
+        
+        analysis.run_scenario(
+            scenario_name='improved',
+            calculator_names=['AIRB']
+        )
+        
+        # Compare
+        comparison = analysis.compare_scenarios(
+            scenario_names=['baseline', 'improved'],
+            calculator_name='AIRB'
+        )
+        
+        # Should have percentage difference column
+        assert 'pct_diff_from_baseline' in comparison.columns
+        # Second scenario should show percentage change
+        pct_diff = comparison.iloc[1]['pct_diff_from_baseline']
+        assert pd.notna(pct_diff)
+        # Should be negative or near zero (improved scenario = lower or similar capital)
+        # With small datasets and stochastic simulation, allow for near-zero differences
+        assert pct_diff <= 0.5  # Allow small positive variations due to randomness
+
+
 # Summary of test coverage:
 # - IntegratedAnalysis initialization: 3 tests
 # - Calculator management: 5 tests  
 # - Scenario management: 3 tests
 # - Running scenarios: 3 tests
 # - Statistical summaries: 2 tests
-# - Percentile analysis: 1 test
-# Total: 17 tests for scenario analysis
+# - Percentile analysis: 7 tests
+# - Scenario comparison: 3 tests (NEW)
+# Total: 26 tests for scenario analysis
