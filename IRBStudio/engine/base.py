@@ -232,6 +232,11 @@ class RWAResult:
         return self.summary['total_exposure']
     
     @property
+    def by_date(self) -> Dict[str, Dict[str, float]]:
+        """Get the date breakdown if available."""
+        return self.get_breakdown('date')
+    
+    @property
     def capital_requirement(self) -> float:
         """Calculate the capital requirement (8% of RWA)."""
         return self.total_rwa * 0.08

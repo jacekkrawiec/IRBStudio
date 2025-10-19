@@ -116,7 +116,7 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         
         return result_df
     
-    def calculate(self, portfolio_df: pd.DataFrame, store_full_portfolio: bool = False) -> RWAResult:
+    def calculate(self, portfolio_df: pd.DataFrame, store_full_portfolio: bool = False, date_column: Optional[str] = None) -> RWAResult:
         """
         Calculate RWA and return a structured result.
         
@@ -127,6 +127,7 @@ class AIRBMortgageCalculator(BaseRWACalculator):
             store_full_portfolio: If True, store the complete portfolio DataFrame.
                                  If False (default), only store essential columns to
                                  reduce memory usage in large-scale Monte Carlo simulations.
+            date_column: Optional name of the date column for time-based breakdowns.
             
         Returns:
             RWAResult object with portfolio, summary, and metadata.
@@ -136,8 +137,8 @@ class AIRBMortgageCalculator(BaseRWACalculator):
         # Calculate RWA
         result_df = self.calculate_rwa(portfolio_df)
         
-        # Generate summary statistics
-        summary = self.summarize_rwa(result_df)
+        # Generate summary statistics with date breakdown if date_column is provided
+        summary = self.summarize_rwa(result_df, date_field=date_column)
         
         # Add metadata
         metadata = {

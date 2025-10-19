@@ -39,6 +39,8 @@ class ColumnMapping(BaseModel):
     default_flag: Optional[str] = Field(None, description="Column indicating if a loan has defaulted (for historical data)")
     rating: Optional[str] = Field(None, description="Column with the loan's current rating grade (for migration analysis)")
     date: Optional[str] = Field(None, description="Column with the observation date (for migration analysis)")
+    score: Optional[str] = Field(None, description="Column with the PD model score (for simulation)")
+    into_default_flag: Optional[str] = Field(None, description="Column indicating if a loan entered default this period (for simulation)")
     loan_type_mapping: Dict[str, str] = Field(
         default_factory=dict, 
         description="Mapping for values in 'loan_type' column to 'historical' or 'application'"

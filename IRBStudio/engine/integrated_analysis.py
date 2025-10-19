@@ -187,6 +187,11 @@ class IntegratedAnalysis:
                         sim_df[target_pd_column] = sim_df[pd_column]
                         sim_df.drop(columns=[pd_column], inplace=True)
                 
+                # Rename exposure column if needed (simulator uses original column name)
+                if hasattr(simulator, 'exposure_col') and simulator.exposure_col:
+                    if simulator.exposure_col in sim_df.columns and simulator.exposure_col != 'exposure':
+                        sim_df['exposure'] = sim_df[simulator.exposure_col]
+                
                 # Process this simulation with each calculator
                 for calc_name in calculator_names:
                     calculator = self.calculators[calc_name]
@@ -203,8 +208,12 @@ class IntegratedAnalysis:
                                 process_all_dates=process_all_dates
                             )
                         
-                        # Calculate RWA with memory optimization
-                        result = calculator.calculate(application_df, store_full_portfolio=store_full_portfolio)
+                        # Calculate RWA with memory optimization and date breakdown
+                        result = calculator.calculate(
+                            application_df, 
+                            store_full_portfolio=store_full_portfolio,
+                            date_column=self.column_mapping['date']
+                        )
                         self.results[scenario_name]['calculator_results'][calc_name]['results'].append(result)
                         
                     except Exception as e:
@@ -233,6 +242,22 @@ class IntegratedAnalysis:
             
             self.results[scenario_name]['raw_simulations'] = simulations
             
+            # Rename columns if needed for all simulations
+            for sim_df in simulations:
+                # Rename PD column if needed
+                pd_column = self.column_mapping['pd']
+                target_pd_column = self.column_mapping['target_pd']
+                
+                if pd_column in sim_df.columns and pd_column != target_pd_column:
+                    if target_pd_column not in sim_df.columns:
+                        sim_df[target_pd_column] = sim_df[pd_column]
+                        sim_df.drop(columns=[pd_column], inplace=True)
+                
+                # Rename exposure column if needed
+                if hasattr(simulator, 'exposure_col') and simulator.exposure_col:
+                    if simulator.exposure_col in sim_df.columns and simulator.exposure_col != 'exposure':
+                        sim_df['exposure'] = sim_df[simulator.exposure_col]
+            
             # Apply each calculator to the simulation results
             for calc_name in calculator_names:
                 calculator = self.calculators[calc_name]
@@ -250,8 +275,12 @@ class IntegratedAnalysis:
                             process_all_dates=process_all_dates
                         )
                         
-                        # Calculate RWA with memory optimization
-                        result = calculator.calculate(application_df, store_full_portfolio=store_full_portfolio)
+                        # Calculate RWA with memory optimization and date breakdown
+                        result = calculator.calculate(
+                            application_df, 
+                            store_full_portfolio=store_full_portfolio,
+                            date_column=self.column_mapping['date']
+                        )
                         rwa_results.append(result)
                         
                     except Exception as e:

@@ -2,6 +2,7 @@
 
 import yaml
 import pandas as pd
+from pathlib import Path
 from ..config.schema import Config, ColumnMapping
 from ..utils.logging import get_logger
 import os
@@ -31,6 +32,10 @@ def load_portfolio(path: str, mapping: ColumnMapping) -> pd.DataFrame:
         FileNotFoundError: If the file does not exist.
         ValueError: If the file extension is not supported.
     """
+    # Convert Path objects to string
+    if isinstance(path, Path):
+        path = str(path)
+    
     logger.info(f"Loading portfolio from: {path}")
     if path.lower().endswith(".csv"):
         logger.debug("Reading as CSV file.")
@@ -92,6 +97,10 @@ def load_config(path: str) -> Config:
         yaml.YAMLError: If the file is not valid YAML.
         pydantic.ValidationError: If the YAML content does not match the Config schema.
     """
+    # Convert Path objects to string
+    if isinstance(path, Path):
+        path = str(path)
+    
     logger.info(f"Loading configuration from: {path}")
     with open(path, "r") as f:
         raw_config = yaml.safe_load(f)
