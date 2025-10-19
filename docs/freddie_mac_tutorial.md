@@ -1,1064 +1,797 @@
-# IRBStudio Tutorial: Analyzing Freddie Mac Mortgage Data# IRBStudio Tutorial: Analyzing Freddie Mac Mortgage Data
+# IRBStudio Tutorial: Analyzing Freddie Mac Mortgage Data
 
+This tutorial demonstrates how to use IRBStudio with real-world mortgage portfolio data, specifically using **Freddie Mac's Single-Family Loan-Level Dataset**.
 
-
-This tutorial demonstrates how to use IRBStudio with real-world mortgage portfolio data, specifically using **Freddie Mac's Single-Family Loan-Level Dataset**.This tutorial demonstrates how to use IRBStudio with real-world mortgage portfolio data, specifically using the structure of Freddie Mac's Single-Family Loan-Level Dataset.
-
-
-
-Freddie Mac has been the primary data source used throughout IRBStudio's development and testing, making this tutorial closely aligned with the project's examples and test cases.---
-
-
-
----## Table of Contents
-
-
-
-## Table of Contents1. [Introduction](#introduction)
-
-2. [Understanding Freddie Mac Data](#understanding-freddie-mac-data)
-
-1. [Introduction](#introduction)3. [Data Preparation](#data-preparation)
-
-2. [Understanding Freddie Mac Data](#understanding-freddie-mac-data)4. [Configuration Setup](#configuration-setup)
-
-3. [Quick Start: Using Pre-Prepared Data](#quick-start-using-pre-prepared-data)5. [Running the Analysis](#running-the-analysis)
-
-4. [Data Preparation from Raw Files](#data-preparation-from-raw-files)6. [Interpreting Results](#interpreting-results)
-
-5. [Configuration Setup](#configuration-setup)7. [Advanced Examples](#advanced-examples)
-
-6. [Running the Analysis](#running-the-analysis)
-
-7. [Interpreting Results](#interpreting-results)---
-
-8. [Advanced Examples](#advanced-examples)
-
-## Introduction
+Freddie Mac has been the primary data source used throughout IRBStudio's development and testing, making this tutorial closely aligned with the project's examples and test cases.
 
 ---
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Understanding Freddie Mac Data](#understanding-freddie-mac-data)
+3. [Quick Start: Using Pre-Prepared Data](#quick-start-using-pre-prepared-data)
+4. [Data Preparation from Raw Files](#data-preparation-from-raw-files)
+5. [Configuration Setup](#configuration-setup)
+6. [Running the Analysis](#running-the-analysis)
+7. [Interpreting Results](#interpreting-results)
+8. [Advanced Examples](#advanced-examples)
+9. [Complete Example Script](#complete-example-script)
+
+---
+
+## Introduction
 
 ### About Freddie Mac Data
 
-## Introduction
-
 Freddie Mac publishes anonymized Single-Family Loan-Level Dataset that includes:
+- **Origination Data**: Loan characteristics at origination (credit score, LTV, DTI, property type, etc.)
+- **Performance Data**: Monthly loan performance updates (balance, delinquency, modifications, dispositions)
 
-### About Freddie Mac Data- **Origination Data**: Loan characteristics at origination
-
-- **Performance Data**: Monthly loan performance updates
-
-Freddie Mac publishes anonymized Single-Family Loan-Level Dataset that includes:
-
-- **Origination Data**: Loan characteristics at origination (credit score, LTV, DTI, property type, etc.)This tutorial shows how to:
-
-- **Performance Data**: Monthly loan performance updates (balance, delinquency, modifications, dispositions)1. Prepare Freddie Mac data for IRBStudio
-
-2. Create appropriate configurations
-
-### Dataset Source3. Run AIRB scenario analysis
-
-4. Interpret capital impact results
+### Dataset Source
 
 **Freddie Mac Single-Family Loan-Level Dataset**
-
-- **Source**: https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset### Dataset Source
-
+- **Source**: https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset
 - **Format**: Pipe-delimited text files (|) without headers
+- **Size**: Millions of loans, decades of performance history
+- **Cost**: Free (registration required)
+- **Update Frequency**: Quarterly
 
-- **Size**: Millions of loans, decades of performance history**Freddie Mac Single-Family Loan-Level Dataset**
+### Tutorial Scope
 
-- **Cost**: Free (registration required)- Source: https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset
-
-- **Update Frequency**: Quarterly- Format: Pipe-delimited text files (origination + performance)
-
-- Size: Millions of loans, decades of performance
-
-### Tutorial Scope- Cost: Free (registration required)
-
-
-
-This tutorial covers:---
-
+This tutorial covers:
 1. ✅ Understanding Freddie Mac data structure
-
-2. ✅ Transforming raw data to IRBStudio format## Understanding Freddie Mac Data
-
+2. ✅ Transforming raw data to IRBStudio format
 3. ✅ Running AIRB scenario analysis
-
-4. ✅ Interpreting capital impact results### File Structure
-
+4. ✅ Interpreting capital impact results
 5. ✅ Advanced analytics (vintages, geography, segments)
-
-Fannie Mae provides two types of files:
 
 ---
 
-**1. Origination Files** (`sample_orig_YYYY.txt`)
+## Understanding Freddie Mac Data
 
-## Understanding Freddie Mac DataContains loan characteristics at origination:
+### File Structure
 
-- Credit score
+Freddie Mac provides two file types per quarter:
 
-### File Structure- LTV ratio
+#### 1. Origination Files (`sample_orig_YYYY.txt`)
 
-- DTI ratio
+Contains **27 pipe-delimited columns** with loan characteristics at origination.
 
-Freddie Mac provides two file types per quarter:- Loan purpose
+**Key Columns:**
 
-- Property type
+| Position | Field Name | Description | Example Value |
+|----------|------------|-------------|---------------|
+| 1 | Credit Score | FICO score (300-850) | 812 |
+| 2 | First Payment Date | YYYYMM format | 202403 |
+| 8 | Occupancy Status | P=Primary, S=Second Home, I=Investment | P |
+| 11 | Original UPB | Original loan amount in dollars | 246000 |
+| 12 | Original LTV | Loan-to-Value ratio (percentage) | 38 |
+| 16 | Product Type | FRM=Fixed Rate Mortgage, ARM=Adjustable | FRM |
+| 17 | Property State | US state (2-letter code) | IL |
+| 18 | Property Type | SF=Single Family, CO=Condo, etc. | SF |
+| **20** | **Loan Sequence Number** | **Unique identifier** | **F24Q10000019** |
+| 21 | Loan Purpose | P=Purchase, C=Cash-out Refi, N=No cash-out Refi | N |
+| 22 | Original Loan Term | Term in months | 360 |
 
-#### 1. Origination Files (`sample_orig_YYYY.txt`)- Number of borrowers
-
-- First-time homebuyer flag
-
-Contains 27 pipe-delimited columns with loan characteristics at origination:
-
-**2. Servicing Files** (`sample_svcg_YYYY.txt`)
-
-| Position | Field | Description | Example |Contains monthly performance updates:
-
-|----------|-------|-------------|---------|- Current UPB (unpaid principal balance)
-
-| 1 | Credit Score | FICO score | 812 |- Delinquency status
-
-| 2 | First Payment Date | YYYYMM format | 202403 |- Loan age
-
-| 8 | Occupancy Status | P=Primary, S=Second, I=Investment | P |- Months to maturity
-
-| 11 | Original UPB | Original loan amount | 246000 |- Modification flag
-
-| 12 | Original LTV | Loan-to-value ratio | 38 |- Zero balance code (payoff/default)
-
-| 16 | Product Type | FRM=Fixed, ARM=Adjustable | FRM |- Foreclosure date
-
-| 17 | Property State | 2-letter code | IL |
-
-| 20 | **Loan Sequence Number** | Unique ID | F24Q10000019 |### Key Fields Mapping
-
-| 21 | Loan Purpose | P=Purchase, C=Refi | N |
-
-| IRBStudio Field | Fannie Mae Field | File | Description |
-
-**Sample Line:**|-----------------|------------------|------|-------------|
-
-```| loan_id | LOAN_SEQUENCE_NUMBER | Both | Unique identifier |
-
-812|202403|N|205402|16984|000|1|P|38|23|246000|38|7.375|R|N|FRM|IL|SF|60600|F24Q10000019|N|360|02|Other sellers|Other servicers|||9||2|N|7| exposure | CURRENT_ACTUAL_UPB | Servicing | Current balance |
-
-```| date | MONTHLY_REPORTING_PERIOD | Servicing | Reporting date |
-
-| default_flag | CURRENT_LOAN_DELINQUENCY_STATUS | Servicing | 0-2 = current, 3+ = default |
-
-#### 2. Performance Files (`sample_svcg_YYYY.txt`)| ltv | ORIGINAL_LTV | Origination | Loan-to-value at origination |
-
-| score | CREDIT_SCORE | Origination | FICO score |
-
-Contains 31 pipe-delimited columns with monthly performance updates:
-
-### Challenge: No Explicit PD or Rating
-
-| Position | Field | Description | Example |
-
-|----------|-------|-------------|---------|Fannie Mae data doesn't include:
-
-| 1 | **Loan Sequence Number** | Matches origination file | F24Q10000019 |- ❌ PD (Probability of Default) values
-
-| 2 | **Monthly Reporting Period** | YYYYMM format | 202402 |- ❌ Internal rating grades
-
-| 3 | **Current Actual UPB** | Current balance | 246000.00 |- ❌ Credit scores in 0-1 scale
-
-| 4 | **Delinquency Status** | 0=Current, 1=30DPD, 2=60DPD, 3+=90+DPD | 0 |
-
-| 5 | Loan Age | Months since origination | 000 |**Solution**: We'll derive these from available data:
-
-| 9 | Zero Balance Code | 01=Prepaid, 03=Foreclosure, 09=REO | |1. **PD**: Estimate from delinquency status and loan characteristics
-
-2. **Rating**: Bin loans by credit score
-
-**Sample Line:**3. **Score**: Normalize FICO (300-850) to 0-1 scale
-
+**Sample Line:**
+```
+812|202403|N|205402|16984|000|1|P|38|23|246000|38|7.375|R|N|FRM|IL|SF|60600|F24Q10000019|N|360|02|Other sellers|Other servicers|||9||2|N|7
 ```
 
-F24Q10000019|202402|246000.00|0|000|360|||||7.375|0.00||||||||||||||40||||||246000.00---
+#### 2. Performance Files (`sample_svcg_YYYY.txt`)
 
+Contains **31 pipe-delimited columns** with monthly performance updates.
+
+**Key Columns:**
+
+| Position | Field Name | Description | Example Value |
+|----------|------------|-------------|---------------|
+| **1** | **Loan Sequence Number** | **Unique identifier (matches origination)** | **F24Q10000019** |
+| **2** | **Monthly Reporting Period** | **YYYYMM format** | **202402** |
+| **3** | **Current Actual UPB** | **Current outstanding balance** | **246000.00** |
+| **4** | **Current Loan Delinquency Status** | **0=Current, 1=30DPD, 2=60DPD, 3+=90+DPD** | **0** |
+| 5 | Loan Age | Months since origination | 000 |
+| 6 | Remaining Months to Maturity | Months until loan maturity | 360 |
+| 9 | Zero Balance Code | 01=Prepaid, 03=Foreclosure, 09=REO | (empty) |
+| 11 | Current Interest Rate | Current rate (percentage) | 7.375 |
+
+**Sample Line:**
 ```
-
-## Data Preparation
+F24Q10000019|202402|246000.00|0|000|360|||||7.375|0.00||||||||||||||40||||||246000.00
+```
 
 ### IRBStudio Field Mapping
 
-### Step 1: Load Raw Fannie Mae Data
+To use Freddie Mac data with IRBStudio, we need to map fields:
 
-| IRBStudio Field | Freddie Mac Source | File | Notes |
+| IRBStudio Field | Freddie Mac Source | File | Transformation |
+|-----------------|-------------------|------|----------------|
+| `loan_id` | Loan Sequence Number | Both | Direct copy |
+| `balance` | Current Actual UPB | Performance | Convert to numeric |
+| `reporting_date` | Monthly Reporting Period | Performance | Parse YYYYMM → datetime |
+| `default_flag` | Current Loan Delinquency Status | Performance | `≥ 3` = 1 (default), else 0 |
+| `into_default_flag` | Current Loan Delinquency Status | Performance | Transition from 0-2 → 3+ |
+| `score` | Credit Score | Origination | Normalize: `1 - (FICO-300)/550` |
+| `rating` | Credit Score | Origination | Bin FICO into rating grades |
+| `pd` | **Derived** | Multiple | Estimate from rating + LTV + delinquency |
+| `ltv` | Original LTV | Origination | Direct copy |
 
-|-----------------|-------------------|------|-------|First, let's load the raw data files:
+### Key Challenge: Estimating PD
 
-| `loan_id` | Loan Sequence Number | Both | Join key |
+Freddie Mac data **does NOT include**:
+- ❌ PD (Probability of Default) values
+- ❌ Internal rating grades
+- ❌ Normalized scores (only raw FICO 300-850)
 
-| `balance` | Current Actual UPB | Performance | Current exposure |```python
-
-| `reporting_date` | Monthly Reporting Period | Performance | Parse YYYYMM |import pandas as pd
-
-| `default_flag` | Delinquency Status ≥ 3 | Performance | 90+ DPD = default |import numpy as np
-
-| `score` | Credit Score (normalized) | Origination | Convert to 0-1 scale |from datetime import datetime
-
-| `rating` | Derived from Credit Score | Origination | Bin FICO into grades |
-
-| `pd` | **Estimated** | Derived | From rating + LTV + delinquency |# Fannie Mae origination file columns (sample)
-
-| `ltv` | Original LTV | Origination | Risk factor |orig_columns = [
-
-    'loan_sequence_number', 'credit_score', 'first_payment_date',
-
-### Key Challenge: Missing PD and Rating    'first_time_homebuyer_flag', 'maturity_date', 'msa',
-
-    'mi_percentage', 'number_of_units', 'occupancy_status',
-
-Freddie Mac data does NOT include:    'original_cltv', 'original_dti', 'original_upb',
-
-- ❌ PD (Probability of Default) values    'original_ltv', 'original_interest_rate', 'channel',
-
-- ❌ Internal rating grades    'prepayment_penalty_flag', 'product_type', 'property_state',
-
-- ❌ Normalized scores (only raw FICO 300-850)    'property_type', 'postal_code', 'loan_sequence_number_dup',
-
-    'loan_purpose', 'original_loan_term', 'number_of_borrowers',
-
-**Solution**: We derive these using:    'seller_name', 'servicer_name', 'super_conforming_flag'
-
-```python]
-
-# 1. Normalize FICO to 0-1 scale
-
-normalized_score = 1 - ((fico - 300) / 550)# Load origination data
-
-orig_df = pd.read_csv(
-
-# 2. Bin into rating grades    'data/FM/sample_orig_2024.txt',
-
-if fico >= 780: rating = 'AAA'    sep='|',
-
-elif fico >= 740: rating = 'AA'    names=orig_columns,
-
-elif fico >= 700: rating = 'A'    header=None
-
-# ... etc)
-
-
-
-# 3. Estimate PD from rating + risk factors# Servicing file columns (sample)
-
-base_pd = rating_pd_map[rating]  # e.g., 'A' = 0.005svcg_columns = [
-
-pd = base_pd * ltv_adjustment * delinquency_multiplier    'loan_sequence_number', 'monthly_reporting_period',
-
-```    'current_actual_upb', 'current_loan_delinquency_status',
-
-    'loan_age', 'remaining_months_to_maturity',
-
----    'repurchase_flag', 'modification_flag', 'zero_balance_code',
-
-    'zero_balance_effective_date', 'current_interest_rate',
-
-## Quick Start: Using Pre-Prepared Data    'current_deferred_upb', 'due_date_of_last_paid_installment',
-
-    'mi_recoveries', 'net_sales_proceeds', 'non_mi_recoveries',
-
-IRBStudio includes pre-prepared Freddie Mac sample data. This is the fastest way to get started:    'expenses', 'legal_costs', 'maintenance_costs',
-
-    'taxes_and_insurance', 'miscellaneous_expenses',
-
-### Option 1: Use Existing Examples    'actual_loss_calculation', 'modification_cost'
-
-]
+**Solution**: We derive these fields using the following approach:
 
 ```python
+# 1. Normalize FICO score to 0-1 scale (0=best, 1=worst)
+normalized_score = 1 - ((fico_score - 300) / 550)
+normalized_score = np.clip(normalized_score, 0, 1)
 
-# The project includes ready-to-use examples# Load servicing data
+# 2. Bin FICO into rating grades
+if fico >= 780: rating = 'AAA'
+elif fico >= 740: rating = 'AA'
+elif fico >= 700: rating = 'A'
+elif fico >= 660: rating = 'BBB'
+elif fico >= 620: rating = 'BB'
+elif fico >= 580: rating = 'B'
+else: rating = 'CCC'
 
-cd examplessvcg_df = pd.read_csv(
-
-python freddie_mac_dashboard_example.py    'data/FM/sample_svcg_2024.txt',
-
-```    sep='|',
-
-    names=svcg_columns,
-
-This script:    header=None
-
-1. Loads pre-prepared `data/sample_portfolio_data_fm.csv`)
-
-2. Runs AIRB scenario comparison
-
-3. Generates interactive dashboardprint(f"Origination records: {len(orig_df):,}")
-
-4. Outputs capital impact analysisprint(f"Servicing records: {len(svcg_df):,}")
-
+# 3. Estimate PD from rating + risk adjustments
+base_pd = rating_pd_map[rating]  # e.g., 'A' = 0.005 (0.5%)
+ltv_adjustment = 1 + 0.3 * (ltv - 80) / 20  # Higher LTV = higher risk
+delinq_multiplier = {0: 1.0, 1: 2.0, 2: 4.0, 3: 8.0}[delinq_status]
+pd = base_pd * ltv_adjustment * delinq_multiplier
+pd = np.clip(pd, 0.0001, 0.50)  # Keep within reasonable bounds
 ```
-
-### Option 2: Load Sample Data Directly
-
-### Step 2: Merge and Transform Data
-
-```python
-
-from irbstudio import run_scenario_comparison```python
-
-# Merge origination and servicing data
-
-# Use the included sample datasetportfolio = svcg_df.merge(
-
-results = run_scenario_comparison(    orig_df,
-
-    config_path="examples/sample_config.yaml",    on='loan_sequence_number',
-
-    portfolio_path="data/sample_portfolio_data_fm.csv",    how='inner'
-
-    n_iterations=1000,)
-
-    random_seed=42,
-
-    output_dir="results/freddie_mac_quick_start"# Parse dates
-
-)portfolio['monthly_reporting_period'] = pd.to_datetime(
-
-    portfolio['monthly_reporting_period'],
-
-# View results    format='%m/%d/%Y'
-
-print(f"Mean AIRB RWA: ${results['Baseline']['AIRB']['mean']:,.0f}"))
-
-print(f"Dashboard: results/freddie_mac_quick_start/scenario_comparison_dashboard.html")
-
-```# Create derived fields
-
-portfolio['normalized_score'] = 1 - (
-
----    (portfolio['credit_score'] - 300) / 550
-
-)
-
-## Data Preparation from Raw Files
-
-# Map delinquency to default flag
-
-If you want to prepare data from raw Freddie Mac files, follow these steps:# 0 = current, 1 = 30 days, 2 = 60 days, 3+ = default
-
-portfolio['default_flag'] = (
-
-### Step 1: Download Freddie Mac Data    portfolio['current_loan_delinquency_status'] >= 3
-
-).astype(int)
-
-1. Register at https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset
-
-2. Download quarterly files (e.g., 2024 Q1, Q2, Q3, Q4)# Create into_default_flag (new defaults this period)
-
-3. Extract to `data/FM/` directory:portfolio = portfolio.sort_values(['loan_sequence_number', 'monthly_reporting_period'])
-
-   - `sample_orig_2024.txt` (origination data)portfolio['prev_default'] = portfolio.groupby('loan_sequence_number')['default_flag'].shift(1).fillna(0)
-
-   - `sample_svcg_2024.txt` (performance data)portfolio['into_default_flag'] = (
-
-    (portfolio['default_flag'] == 1) & (portfolio['prev_default'] == 0)
-
-### Step 2: Load and Merge Data).astype(int)
-
-
-
-```python# Create rating grades based on credit score
-
-import pandas as pddef assign_rating(score):
-
-import numpy as np    if score >= 780: return 'AAA'
-
-    elif score >= 740: return 'AA'
-
-# Define column names (Freddie Mac files have no headers)    elif score >= 700: return 'A'
-
-orig_columns = [    elif score >= 660: return 'BBB'
-
-    'credit_score', 'first_payment_date', 'first_time_homebuyer_flag',    elif score >= 620: return 'BB'
-
-    'maturity_date', 'msa', 'mi_percentage', 'number_of_units',    elif score >= 580: return 'B'
-
-    'occupancy_status', 'original_cltv', 'original_dti', 'original_upb',    else: return 'CCC'
-
-    'original_ltv', 'original_interest_rate', 'channel',
-
-    'prepayment_penalty_flag', 'product_type', 'property_state',portfolio['rating'] = portfolio['credit_score'].apply(assign_rating)
-
-    'property_type', 'postal_code', 'loan_sequence_number',
-
-    'loan_purpose', 'original_loan_term', 'number_of_borrowers',# Estimate PD from delinquency and score
-
-    'seller_name', 'servicer_name', 'super_conforming_flag',# Simple heuristic: use historical default rates by rating
-
-    'pre_harp_loan_sequence_number'rating_pd = {
-
-]    'AAA': 0.0005, 'AA': 0.001, 'A': 0.005,
-
-    'BBB': 0.01, 'BB': 0.03, 'B': 0.05, 'CCC': 0.10
-
-perf_columns = [}
-
-    'loan_sequence_number', 'monthly_reporting_period',portfolio['pd'] = portfolio['rating'].map(rating_pd)
-
-    'current_actual_upb', 'current_loan_delinquency_status',
-
-    'loan_age', 'remaining_months_to_maturity',# Add some noise to PD based on individual characteristics
-
-    'repurchase_flag', 'modification_flag', 'zero_balance_code',portfolio['pd'] = portfolio['pd'] * (
-
-    'zero_balance_effective_date', 'current_interest_rate',    1 + 0.2 * (portfolio['original_ltv'] - 80) / 20
-
-    'current_deferred_upb', 'due_date_of_last_paid_installment',)  # Adjust for LTV
-
-    'mi_recoveries', 'net_sales_proceeds', 'non_mi_recoveries',portfolio['pd'] = portfolio['pd'].clip(0.0001, 0.50)  # Reasonable bounds
-
-    'expenses', 'legal_costs', 'maintenance_costs',
-
-    'taxes_and_insurance', 'miscellaneous_expenses',print("\nTransformed Portfolio Sample:")
-
-    'actual_loss_calculation', 'modification_cost',print(portfolio[['loan_sequence_number', 'monthly_reporting_period', 
-
-    'step_modification_flag', 'deferred_payment_plan',               'current_actual_upb', 'credit_score', 'rating', 
-
-    'estimated_ltv', 'zero_balance_removal_upb',               'pd', 'normalized_score', 'default_flag']].head())
-
-    'delinquent_accrued_interest', 'delinquency_due_to_disaster',```
-
-    'borrower_assistance_status_code', 'current_month_modification_cost'
-
-]### Step 3: Prepare IRBStudio Format
-
-
-
-# Load data```python
-
-orig_df = pd.read_csv('data/FM/sample_orig_2024.txt', sep='|', names=orig_columns, header=None)# Select relevant columns and rename
-
-perf_df = pd.read_csv('data/FM/sample_svcg_2024.txt', sep='|', names=perf_columns, header=None)irbstudio_portfolio = portfolio[[
-
-    'loan_sequence_number',
-
-# Merge on loan_sequence_number    'current_actual_upb',
-
-portfolio = perf_df.merge(orig_df, on='loan_sequence_number', how='inner')    'pd',
-
-print(f"Merged {len(portfolio):,} records")    'normalized_score',
-
-```    'rating',
-
-    'monthly_reporting_period',
-
-### Step 3: Transform to IRBStudio Format    'default_flag',
-
-    'into_default_flag',
-
-```python    'original_ltv'
-
-# Parse dates (YYYYMM format)]].rename(columns={
-
-portfolio['reporting_date'] = pd.to_datetime(    'loan_sequence_number': 'loan_id',
-
-    portfolio['monthly_reporting_period'].astype(str),    'current_actual_upb': 'balance',
-
-    format='%Y%m',    'normalized_score': 'score',
-
-    errors='coerce'    'monthly_reporting_period': 'reporting_date',
-
-)    'original_ltv': 'ltv'
-
-})
-
-# Normalize credit score (0 = best, 1 = worst)
-
-portfolio['credit_score'] = pd.to_numeric(portfolio['credit_score'], errors='coerce')# Filter to recent data (e.g., last 12 months)
-
-portfolio['normalized_score'] = 1 - ((portfolio['credit_score'] - 300) / 550)cutoff_date = irbstudio_portfolio['reporting_date'].max() - pd.DateOffset(months=12)
-
-portfolio['normalized_score'] = portfolio['normalized_score'].clip(0, 1)irbstudio_portfolio = irbstudio_portfolio[
-
-    irbstudio_portfolio['reporting_date'] >= cutoff_date
-
-# Assign rating grades]
-
-def assign_rating(fico):
-
-    if pd.isna(fico): return 'B'# Remove loans with missing critical data
-
-    if fico >= 780: return 'AAA'irbstudio_portfolio = irbstudio_portfolio.dropna(
-
-    elif fico >= 740: return 'AA'    subset=['balance', 'pd', 'score', 'rating']
-
-    elif fico >= 700: return 'A')
-
-    elif fico >= 660: return 'BBB'
-
-    elif fico >= 620: return 'BB'# Save to CSV
-
-    elif fico >= 580: return 'B'irbstudio_portfolio.to_csv(
-
-    else: return 'CCC'    'data/fannie_mae_portfolio_prepared.csv',
-
-    index=False
-
-portfolio['rating'] = portfolio['credit_score'].apply(assign_rating))
-
-
-
-# Estimate PDprint(f"\nPrepared portfolio: {len(irbstudio_portfolio):,} records")
-
-rating_pd = {'AAA': 0.0005, 'AA': 0.001, 'A': 0.005, 'BBB': 0.01, print(f"Date range: {irbstudio_portfolio['reporting_date'].min()} to {irbstudio_portfolio['reporting_date'].max()}")
-
-             'BB': 0.03, 'B': 0.05, 'CCC': 0.10}print(f"Total exposure: ${irbstudio_portfolio['balance'].sum():,.0f}")
-
-portfolio['pd'] = portfolio['rating'].map(rating_pd)```
-
-
-
-# Adjust for LTV---
-
-portfolio['original_ltv'] = pd.to_numeric(portfolio['original_ltv'], errors='coerce')
-
-ltv_adj = 1 + 0.3 * (portfolio['original_ltv'] - 80) / 20## Configuration Setup
-
-portfolio['pd'] = portfolio['pd'] * ltv_adj.fillna(1.0)
-
-### Create Configuration for Fannie Mae Analysis
-
-# Adjust for current delinquency
-
-portfolio['delinq'] = portfolio['current_loan_delinquency_status'].fillna('0').astype(str).str.strip()```yaml
-
-delinq_mult = {'0': 1.0, '1': 2.0, '2': 4.0, '3': 8.0}# fannie_mae_config.yaml
-
-portfolio['pd'] = portfolio['pd'] * portfolio['delinq'].apply(lambda x: delinq_mult.get(x, 1.0))
-
-portfolio['pd'] = portfolio['pd'].clip(0.0001, 0.50)# Map prepared data to IRBStudio canonical fields
-
-column_mapping:
-
-# Create default flags  loan_id: loan_id
-
-portfolio['default_flag'] = portfolio['delinq'].apply(lambda x: 1 if x not in ['0','1','2',''] else 0)  exposure: balance
-
-portfolio = portfolio.sort_values(['loan_sequence_number', 'reporting_date'])  pd: pd
-
-portfolio['prev_default'] = portfolio.groupby('loan_sequence_number')['default_flag'].shift(1).fillna(0)  score: score
-
-portfolio['into_default_flag'] = ((portfolio['default_flag'] == 1) & (portfolio['prev_default'] == 0)).astype(int)  rating: rating
-
-  date: reporting_date
-
-# Select and rename columns  default_flag: default_flag
-
-irbstudio_portfolio = portfolio[[  into_default_flag: into_default_flag
-
-    'loan_sequence_number', 'current_actual_upb', 'pd', 'normalized_score',  ltv: ltv
-
-    'rating', 'reporting_date', 'default_flag', 'into_default_flag', 'original_ltv'
-
-]].rename(columns={# Regulatory parameters for US mortgage portfolio
-
-    'loan_sequence_number': 'loan_id',regulatory:
-
-    'current_actual_upb': 'balance',  jurisdiction: us
-
-    'normalized_score': 'score',  asset_correlation: 0.15  # Basel standard for mortgage
-
-    'original_ltv': 'ltv'  confidence_level: 0.999  # 99.9% confidence
-
-})
-
-# Scenarios to analyze
-
-# Clean datascenarios:
-
-irbstudio_portfolio['balance'] = pd.to_numeric(irbstudio_portfolio['balance'], errors='coerce')  # Current State: Baseline with current model
-
-irbstudio_portfolio = irbstudio_portfolio[irbstudio_portfolio['balance'] > 0]  - name: "Current Model"
-
-irbstudio_portfolio = irbstudio_portfolio.dropna(subset=['balance', 'pd', 'score', 'rating'])    description: "Current PD model performance (AUC ~0.72 typical for FICO-based)"
-
-    pd_auc: 0.72
-
-# Filter to recent 12 months    portfolio_default_rate: 0.015  # 1.5% typical for Fannie Mae
-
-max_date = irbstudio_portfolio['reporting_date'].max()    lgd: 0.25  # 25% LGD for first-lien mortgages
-
-cutoff_date = max_date - pd.DateOffset(months=12)    new_loan_rate: 0.08  # 8% new originations monthly
-
-irbstudio_portfolio = irbstudio_portfolio[irbstudio_portfolio['reporting_date'] >= cutoff_date]    rating_pd_map:
-
-      AAA: 0.0005
-
-# Save      AA: 0.001
-
-irbstudio_portfolio.to_csv('data/freddie_mac_prepared.csv', index=False)      A: 0.005
-
-print(f"Saved {len(irbstudio_portfolio):,} records to data/freddie_mac_prepared.csv")      BBB: 0.01
-
-```      BB: 0.03
-
-      B: 0.05
-
----      CCC: 0.10
-
-
-
-## Configuration Setup  # Improved Model: Better discrimination with additional data
-
-  - name: "Enhanced Model"
-
-Create `freddie_mac_config.yaml`:    description: "Improved model with payment history, DTI, property data (AUC ~0.78)"
-
-    pd_auc: 0.78
-
-```yaml    portfolio_default_rate: 0.015
-
-# Column mapping    lgd: 0.25
-
-column_mapping:    new_loan_rate: 0.08
-
-  loan_id: loan_id    rating_pd_map:
-
-  exposure: balance      AAA: 0.0005
-
-  pd: pd      AA: 0.001
-
-  score: score      A: 0.005
-
-  rating: rating      BBB: 0.01
-
-  date: reporting_date      BB: 0.03
-
-  default_flag: default_flag      B: 0.05
-
-  into_default_flag: into_default_flag      CCC: 0.10
-
-  ltv: ltv
-
-  # Stress Scenario: Economic downturn
-
-# Regulatory parameters  - name: "Stress Scenario"
-
-regulatory:    description: "Recession scenario with increased defaults and lower discrimination"
-
-  jurisdiction: us    pd_auc: 0.68  # Model discrimination degrades in stress
-
-  asset_correlation: 0.15    portfolio_default_rate: 0.04  # 4% default rate (stress)
-
-  confidence_level: 0.999    lgd: 0.35  # Higher LGD in stress (longer foreclosures, lower recoveries)
-
-    new_loan_rate: 0.03  # Lower originations in stress
-
-# Scenarios    rating_pd_map:
-
-scenarios:      AAA: 0.001
-
-  - name: "Current Model"      AA: 0.002
-
-    description: "Baseline FICO-based model (AUC ~0.72)"      A: 0.01
-
-    pd_auc: 0.72      BBB: 0.02
-
-    portfolio_default_rate: 0.015      BB: 0.06
-
-    lgd: 0.25      B: 0.10
-
-    new_loan_rate: 0.08      CCC: 0.20
-
-    rating_pd_map:```
-
-      AAA: 0.0005
-
-      AA: 0.001---
-
-      A: 0.005
-
-      BBB: 0.01## Running the Analysis
-
-      BB: 0.03
-
-      B: 0.05### Example 1: Basic Scenario Comparison
-
-      CCC: 0.10
-
-```python
-
-  - name: "Enhanced Model"from irbstudio import run_scenario_comparison
-
-    description: "Improved model with additional data (AUC ~0.78)"
-
-    pd_auc: 0.78# Run comparison of current vs. enhanced model
-
-    portfolio_default_rate: 0.015results = run_scenario_comparison(
-
-    lgd: 0.25    config_path="fannie_mae_config.yaml",
-
-    new_loan_rate: 0.08    portfolio_path="data/fannie_mae_portfolio_prepared.csv",
-
-    rating_pd_map:    n_iterations=5000,  # Higher iterations for business case
-
-      AAA: 0.0005    random_seed=42,
-
-      AA: 0.001    output_dir="results/fannie_mae_analysis"
-
-      A: 0.005)
-
-      BBB: 0.01
-
-      BB: 0.03# Print summary
-
-      B: 0.05print("\n" + "="*60)
-
-      CCC: 0.10print("FANNIE MAE PORTFOLIO: CAPITAL IMPACT ANALYSIS")
-
-print("="*60)
-
-  - name: "Stress Scenario"
-
-    description: "Recession with higher defaults"for scenario_name in ['Current Model', 'Enhanced Model', 'Stress Scenario']:
-
-    pd_auc: 0.68    if scenario_name in results:
-
-    portfolio_default_rate: 0.04        airb_stats = results[scenario_name]['AIRB']
-
-    lgd: 0.35        print(f"\n{scenario_name}:")
-
-    new_loan_rate: 0.03        print(f"  Mean RWA:    ${airb_stats['mean']:>15,.0f}")
-
-    rating_pd_map:        print(f"  Std Dev:     ${airb_stats['std']:>15,.0f}")
-
-      AAA: 0.001        print(f"  P95 RWA:     ${airb_stats['percentiles']['P95']:>15,.0f}")
-
-      AA: 0.002
-
-      A: 0.01# Capital savings from model improvement
-
-      BBB: 0.02if 'capital_delta' in results:
-
-      BB: 0.06    print(f"\nCapital Savings (Current → Enhanced): ${results['capital_delta']:>15,.0f}")
-
-      B: 0.10    print(f"                                        (RWA reduction × 8% capital ratio)")
-
-      CCC: 0.20
-
-```print("\n" + "="*60)
-
-print(f"Dashboard: results/fannie_mae_analysis/scenario_comparison_dashboard.html")
-
----print("="*60)
-
-```
-
-## Running the Analysis
-
-### Example 2: Detailed AIRB vs SA Comparison
-
-### Example 1: Scenario Comparison
-
-```python
-
-```pythonfrom irbstudio import load_config
-
-from irbstudio import run_scenario_comparisonfrom irbstudio.data.loader import load_portfolio
-
-from irbstudio.simulation.portfolio_simulator import PortfolioSimulator
-
-results = run_scenario_comparison(from irbstudio.engine.integrated_analysis import IntegratedAnalysis
-
-    config_path="freddie_mac_config.yaml",from irbstudio.engine.mortgage import AIRBMortgageCalculator, SAMortgageCalculator
-
-    portfolio_path="data/freddie_mac_prepared.csv",
-
-    n_iterations=5000,# Load data
-
-    random_seed=42,config = load_config("fannie_mae_config.yaml")
-
-    output_dir="results/freddie_mac_analysis"portfolio_df = load_portfolio(
-
-)    "data/fannie_mae_portfolio_prepared.csv",
-
-    config.column_mapping
-
-# Print results)
-
-print("\n" + "="*70)
-
-print("FREDDIE MAC PORTFOLIO ANALYSIS")# Create analysis engine
-
-print("="*70)analysis = IntegratedAnalysis()
-
-
-
-for scenario in ['Current Model', 'Enhanced Model', 'Stress Scenario']:# Add both calculators
-
-    if scenario in results:analysis.add_calculator('AIRB', AIRBMortgageCalculator(
-
-        stats = results[scenario]['AIRB']    regulatory_params={
-
-        print(f"\n{scenario}:")        'lgd': 0.25,
-
-        print(f"  Mean RWA:  ${stats['mean']:>15,.0f}")        'asset_correlation': 0.15,
-
-        print(f"  P95 RWA:   ${stats['percentiles']['P95']:>15,.0f}")        'confidence_level': 0.999
-
-    }
-
-if 'capital_delta' in results:))
-
-    print(f"\nCapital Savings: ${results['capital_delta']:>15,.0f}")analysis.add_calculator('SA', SAMortgageCalculator())
-
-
-
-print(f"\nDashboard: results/freddie_mac_analysis/scenario_comparison_dashboard.html")# Create simulator for current model
-
-```current_scenario = config.scenarios[0]  # "Current Model"
-
-simulator = PortfolioSimulator(
-
-### Example 2: AIRB vs SA    portfolio_df=portfolio_df,
-
-    score_to_rating_bounds={
-
-```python        'AAA': (0.00, 0.02),
-
-from irbstudio import load_config        'AA': (0.02, 0.05),
-
-from irbstudio.data.loader import load_portfolio        'A': (0.05, 0.10),
-
-from irbstudio.engine.integrated_analysis import IntegratedAnalysis        'BBB': (0.10, 0.20),
-
-from irbstudio.engine.mortgage import AIRBMortgageCalculator, SAMortgageCalculator        'BB': (0.20, 0.30),
-
-from irbstudio.simulation.portfolio_simulator import PortfolioSimulator        'B': (0.30, 0.50),
-
-        'CCC': (0.50, 1.00)
-
-# Load    },
-
-config = load_config("freddie_mac_config.yaml")    rating_col='rating',
-
-portfolio_df = load_portfolio("data/freddie_mac_prepared.csv", config.column_mapping)    loan_id_col='loan_id',
-
-    date_col='reporting_date',
-
-# Setup    default_col='default_flag',
-
-analysis = IntegratedAnalysis()    into_default_flag_col='into_default_flag',
-
-analysis.add_calculator('AIRB', AIRBMortgageCalculator({'lgd': 0.25}))    score_col='score',
-
-analysis.add_calculator('SA', SAMortgageCalculator())    target_auc=current_scenario.pd_auc
-
-)
-
-simulator = PortfolioSimulator(portfolio_df=portfolio_df, target_auc=0.72)
-
-analysis.add_scenario('Baseline', simulator, n_iterations=2000)# Add scenario
-
-analysis.add_scenario('Current Model', simulator, n_iterations=2000)
-
-# Run
-
-results = analysis.run_scenario('Baseline', random_seed=42, application_start_date='2024-01-01')# Run with both calculators
-
-results = analysis.run_scenario(
-
-# Compare    scenario_name='Current Model',
-
-airb = results['AIRB']['mean']    random_seed=42,
-
-sa = results['SA']['mean']    application_start_date='2024-01-01'
-
-print(f"AIRB RWA: ${airb:,.0f}"))
-
-print(f"SA RWA: ${sa:,.0f}")
-
-print(f"Savings: ${(sa - airb) * 0.08:,.0f}")# Compare AIRB vs SA
-
-```airb_mean = results['AIRB']['mean']
-
-sa_mean = results['SA']['mean']
-
----savings = (sa_mean - airb_mean) * 0.08
-
-
-
-## Interpreting Resultsprint("\n" + "="*60)
-
-print("AIRB vs STANDARDIZED APPROACH COMPARISON")
-
-### Key Metricsprint("="*60)
-
-print(f"Standardized Approach RWA:  ${sa_mean:>15,.0f}")
-
-**Mean RWA**: Average capital requirement  print(f"AIRB Approach RWA:          ${airb_mean:>15,.0f}")
-
-**P95 RWA**: Stress scenario (95th percentile)  print(f"RWA Reduction:              ${sa_mean - airb_mean:>15,.0f}")
-
-**Standard Deviation**: Model uncertainty  print(f"Capital Savings:            ${savings:>15,.0f}")
-
-**Capital Savings**: (RWA reduction) × 8%print(f"Percentage Reduction:       {((sa_mean - airb_mean) / sa_mean * 100):>15.1f}%")
-
-print("="*60)
-
-### Business Case Example```
-
-
-
-```---
-
-Current Model:  $287M RWA → $23.0M capital
-
-Enhanced Model: $251M RWA → $20.1M capital## Interpreting Results
-
-────────────────────────────────────────────
-
-Savings:        $36M RWA  → $2.9M capital freed### Understanding Output Metrics
-
-
-
-Model Cost:     $500K one-time#### 1. Mean RWA
-
-ROI:            ($2.9M - $0.5M) / $0.5M = 480%- **Definition**: Average RWA across all Monte Carlo simulations
-
-Payback:        2.1 months- **Use**: Primary metric for capital planning and budgeting
-
-```- **Typical Values** (for $1B portfolio):
-
-  - Conservative: $400M - $600M (40-60% RWA density)
-
----  - Moderate: $250M - $400M (25-40%)
-
-  - Aggressive: $150M - $250M (15-25%)
-
-## Advanced Examples
-
-#### 2. Standard Deviation
-
-### Vintage Analysis- **Definition**: Measure of RWA volatility/uncertainty
-
-- **Use**: Understanding model risk
-
-```python- **Interpretation**:
-
-# Group by origination year  - Low (< 5% of mean): Stable, low uncertainty
-
-for year in [2021, 2022, 2023, 2024]:  - Medium (5-15%): Typical for established portfolios
-
-    vintage_df = portfolio_df[portfolio_df['origination_year'] == year]  - High (> 15%): High uncertainty, consider more data or model validation
-
-    simulator = PortfolioSimulator(portfolio_df=vintage_df, target_auc=0.75)
-
-    analysis.add_scenario(f'Vintage_{year}', simulator, n_iterations=500)#### 3. P95 RWA
-
-    results = analysis.run_scenario(f'Vintage_{year}', random_seed=42)- **Definition**: 95th percentile (only 5% chance of exceeding)
-
-    print(f"{year}: ${results['AIRB']['mean']:,.0f}")- **Use**: Stress testing and capital buffer determination
-
-```- **Regulatory**: Often used for ICAAP stress scenarios
-
-
-
-### Geographic Segmentation### Dashboard Visualization Guide
-
-
-
-```pythonThe generated dashboard includes:
-
-# Analyze by state
-
-for state in ['CA', 'TX', 'FL', 'NY']:**1. Distribution Plots**
-
-    state_df = portfolio_df[portfolio_df['property_state'] == state]- **Histogram**: Shows RWA frequency distribution
-
-    # ... run analysis per state- **KDE Overlay**: Smooth probability density
-
-```- **Percentile Lines**: P5, P50, P95 markers
-
-- **Interpretation**: Look for skewness, multiple modes
 
 ---
 
-**2. Scenario Comparison**
+## Quick Start: Using Pre-Prepared Data
 
-## Summary- **Bar Chart**: Side-by-side mean RWA comparison
+IRBStudio includes pre-prepared Freddie Mac sample data. This is the **fastest way** to get started:
 
-- **Error Bars**: Show ±1 standard deviation
+### Option 1: Run Example Script
 
-### Key Takeaways- **Use**: Quick visual comparison of scenarios
-
-
-
-✅ **Freddie Mac is IRBStudio's primary test dataset**  **3. Summary Statistics Table**
-
-✅ **Pipe-delimited format requires explicit column definitions**  | Metric | Current Model | Enhanced Model | Stress |
-
-✅ **PD and ratings must be derived (not provided)**  |--------|---------------|----------------|--------|
-
-✅ **YYYYMM date format needs parsing**  | Mean | $325M | $298M | $487M |
-
-✅ **Rich loan characteristics enable advanced segmentation**| Std Dev | $18M | $16M | $34M |
-
-| P95 | $356M | $325M | $545M |
-
-### Best Practices| Skew | 0.15 | 0.12 | 0.28 |
-
-
-
-1. ✅ Filter to recent 12-24 months for current portfolio**4. Waterfall Chart**
-
-2. ✅ Validate FICO distribution (expect 700-750 average for prime)- Shows component-by-component RWA breakdown
-
-3. ✅ Check for zero balance loans (exclude from analysis)- Useful for understanding drivers of change
-
-4. ✅ Calibrate PD adjustments to your institution's experience
-
-5. ✅ Document all assumptions for audit trail### Business Insights
-
-
-
-### Resources#### Model Improvement Business Case
-
-
-
-- **Freddie Mac**: https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset```
-
-- **IRBStudio Examples**: `examples/freddie_mac_dashboard_example.py`Current Model:     Mean RWA = $325M
-
-- **Sample Data**: `data/FM/sample_orig_2024.txt`, `data/FM/sample_svcg_2024.txt`Enhanced Model:    Mean RWA = $298M
-
-- **User Guide**: [docs/user_guide.md](user_guide.md)RWA Reduction:     $27M
-
-- **API Reference**: [docs/api_reference.md](api_reference.md)Capital Savings:   $27M × 8% = $2.16M
-
-
-
----If model development cost = $500K
-
-ROI = ($2.16M - $0.5M) / $0.5M = 332%
-
-*This tutorial uses Freddie Mac data structure as demonstrated throughout IRBStudio's development. Always validate results with your model validation team before business decisions.*Payback period = 0.3 years (~4 months)
-
+```bash
+cd examples
+python freddie_mac_dashboard_example.py
 ```
 
-*Last Updated: October 2025*
+This script:
+1. ✅ Loads pre-prepared `data/sample_portfolio_data_fm.csv`
+2. ✅ Runs AIRB scenario comparison (Current vs Enhanced vs Stress)
+3. ✅ Generates interactive HTML dashboard
+4. ✅ Outputs capital impact analysis
 
-#### AIRB vs SA Decision
+### Option 2: Use High-Level API
+
+```python
+from irbstudio import run_scenario_comparison
+
+# Use the included sample dataset
+results = run_scenario_comparison(
+    config_path="examples/sample_config.yaml",
+    portfolio_path="data/sample_portfolio_data_fm.csv",
+    n_iterations=1000,
+    random_seed=42,
+    output_dir="results/freddie_mac_quick_start"
+)
+
+# View results
+print("\n" + "="*60)
+print("FREDDIE MAC PORTFOLIO ANALYSIS RESULTS")
+print("="*60)
+
+for scenario_name, scenario_results in results.items():
+    if scenario_name != 'capital_delta':
+        airb_mean = scenario_results['AIRB']['mean']
+        airb_p95 = scenario_results['AIRB']['percentiles']['P95']
+        print(f"\n{scenario_name}:")
+        print(f"  Mean RWA: ${airb_mean:,.0f}")
+        print(f"  P95 RWA:  ${airb_p95:,.0f}")
+
+if 'capital_delta' in results:
+    print(f"\nCapital Savings: ${results['capital_delta']:,.0f}")
+
+print("\n" + "="*60)
+print("Dashboard: results/freddie_mac_quick_start/scenario_comparison_dashboard.html")
+print("="*60)
+```
+
+---
+
+## Data Preparation from Raw Files
+
+If you want to prepare data from **raw Freddie Mac files**, follow these steps:
+
+### Step 1: Download Freddie Mac Data
+
+1. **Register** at https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset
+2. **Download** quarterly files (e.g., 2024 Q1, Q2, Q3, Q4)
+3. **Extract** to your `data/FM/` directory:
+   - `sample_orig_2024.txt` (origination data)
+   - `sample_svcg_2024.txt` (performance data)
+
+### Step 2: Load and Merge Data
+
+```python
+import pandas as pd
+import numpy as np
+
+# Define column names (Freddie Mac files have NO headers)
+orig_columns = [
+    'credit_score', 'first_payment_date', 'first_time_homebuyer_flag',
+    'maturity_date', 'msa', 'mi_percentage', 'number_of_units',
+    'occupancy_status', 'original_cltv', 'original_dti', 'original_upb',
+    'original_ltv', 'original_interest_rate', 'channel',
+    'prepayment_penalty_flag', 'product_type', 'property_state',
+    'property_type', 'postal_code', 'loan_sequence_number',
+    'loan_purpose', 'original_loan_term', 'number_of_borrowers',
+    'seller_name', 'servicer_name', 'super_conforming_flag',
+    'pre_harp_loan_sequence_number'
+]
+
+perf_columns = [
+    'loan_sequence_number', 'monthly_reporting_period',
+    'current_actual_upb', 'current_loan_delinquency_status',
+    'loan_age', 'remaining_months_to_maturity',
+    'repurchase_flag', 'modification_flag', 'zero_balance_code',
+    'zero_balance_effective_date', 'current_interest_rate',
+    'current_deferred_upb', 'due_date_of_last_paid_installment',
+    'mi_recoveries', 'net_sales_proceeds', 'non_mi_recoveries',
+    'expenses', 'legal_costs', 'maintenance_costs',
+    'taxes_and_insurance', 'miscellaneous_expenses',
+    'actual_loss_calculation', 'modification_cost',
+    'step_modification_flag', 'deferred_payment_plan',
+    'estimated_ltv', 'zero_balance_removal_upb',
+    'delinquent_accrued_interest', 'delinquency_due_to_disaster',
+    'borrower_assistance_status_code', 'current_month_modification_cost'
+]
+
+# Load data with pipe delimiter
+print("Loading Freddie Mac data...")
+orig_df = pd.read_csv(
+    'data/FM/sample_orig_2024.txt',
+    sep='|',
+    names=orig_columns,
+    header=None,
+    low_memory=False
+)
+
+perf_df = pd.read_csv(
+    'data/FM/sample_svcg_2024.txt',
+    sep='|',
+    names=perf_columns,
+    header=None,
+    low_memory=False
+)
+
+print(f"Origination records: {len(orig_df):,}")
+print(f"Performance records: {len(perf_df):,}")
+
+# Merge on loan_sequence_number (inner join keeps only matching loans)
+portfolio = perf_df.merge(
+    orig_df,
+    on='loan_sequence_number',
+    how='inner'
+)
+
+print(f"Merged records: {len(portfolio):,}")
+```
+
+### Step 3: Transform to IRBStudio Format
+
+```python
+# ===================================================================
+# STEP 3A: Parse Dates
+# ===================================================================
+# Freddie Mac uses YYYYMM format (e.g., 202403 = March 2024)
+portfolio['reporting_date'] = pd.to_datetime(
+    portfolio['monthly_reporting_period'].astype(str),
+    format='%Y%m',
+    errors='coerce'
+)
+
+# ===================================================================
+# STEP 3B: Normalize Credit Score
+# ===================================================================
+# Convert to numeric and normalize to 0-1 scale (0=best, 1=worst)
+portfolio['credit_score'] = pd.to_numeric(
+    portfolio['credit_score'],
+    errors='coerce'
+)
+
+portfolio['normalized_score'] = 1 - (
+    (portfolio['credit_score'] - 300) / 550
+)
+portfolio['normalized_score'] = portfolio['normalized_score'].clip(0, 1)
+
+# ===================================================================
+# STEP 3C: Assign Rating Grades
+# ===================================================================
+def assign_rating(fico):
+    """Assign rating grade based on FICO score"""
+    if pd.isna(fico):
+        return 'B'  # Default to middle rating for missing scores
+    if fico >= 780: return 'AAA'
+    elif fico >= 740: return 'AA'
+    elif fico >= 700: return 'A'
+    elif fico >= 660: return 'BBB'
+    elif fico >= 620: return 'BB'
+    elif fico >= 580: return 'B'
+    else: return 'CCC'
+
+portfolio['rating'] = portfolio['credit_score'].apply(assign_rating)
+
+# ===================================================================
+# STEP 3D: Estimate PD
+# ===================================================================
+# Base PD by rating grade
+rating_pd = {
+    'AAA': 0.0005,  # 0.05%
+    'AA': 0.001,    # 0.1%
+    'A': 0.005,     # 0.5%
+    'BBB': 0.01,    # 1%
+    'BB': 0.03,     # 3%
+    'B': 0.05,      # 5%
+    'CCC': 0.10     # 10%
+}
+portfolio['pd'] = portfolio['rating'].map(rating_pd)
+
+# Adjust for LTV (higher LTV = higher risk)
+portfolio['original_ltv'] = pd.to_numeric(
+    portfolio['original_ltv'],
+    errors='coerce'
+)
+ltv_adj = 1 + 0.3 * (portfolio['original_ltv'] - 80) / 20
+ltv_adj = ltv_adj.fillna(1.0)
+portfolio['pd'] = portfolio['pd'] * ltv_adj
+
+# Adjust for current delinquency status (higher delinquency = higher risk)
+portfolio['delinq'] = portfolio['current_loan_delinquency_status'].fillna('0').astype(str).str.strip()
+delinq_multiplier = {
+    '0': 1.0,   # Current
+    '1': 2.0,   # 30 days past due
+    '2': 4.0,   # 60 days past due
+    '3': 8.0,   # 90+ days past due
+}
+portfolio['delinq_mult'] = portfolio['delinq'].apply(
+    lambda x: delinq_multiplier.get(x, 1.0)
+)
+portfolio['pd'] = portfolio['pd'] * portfolio['delinq_mult']
+
+# Clip PD to reasonable bounds
+portfolio['pd'] = portfolio['pd'].clip(0.0001, 0.50)
+
+# ===================================================================
+# STEP 3E: Create Default Flags
+# ===================================================================
+# default_flag: 1 if loan is currently in default (90+ DPD), else 0
+portfolio['default_flag'] = portfolio['delinq'].apply(
+    lambda x: 1 if x not in ['0', '1', '2', ''] else 0
+)
+
+# into_default_flag: 1 if loan newly defaulted this period
+portfolio = portfolio.sort_values(['loan_sequence_number', 'reporting_date'])
+portfolio['prev_default'] = portfolio.groupby('loan_sequence_number')['default_flag'].shift(1).fillna(0)
+portfolio['into_default_flag'] = (
+    (portfolio['default_flag'] == 1) & (portfolio['prev_default'] == 0)
+).astype(int)
+
+print("\nTransformed Portfolio Sample:")
+print(portfolio[[
+    'loan_sequence_number', 'reporting_date', 'current_actual_upb',
+    'credit_score', 'rating', 'pd', 'normalized_score', 'default_flag'
+]].head(10))
+```
+
+### Step 4: Prepare Final Dataset
+
+```python
+# ===================================================================
+# STEP 4: Select and Rename Columns to IRBStudio Format
+# ===================================================================
+irbstudio_portfolio = portfolio[[
+    'loan_sequence_number',
+    'current_actual_upb',
+    'pd',
+    'normalized_score',
+    'rating',
+    'reporting_date',
+    'default_flag',
+    'into_default_flag',
+    'original_ltv'
+]].copy()
+
+# Rename to IRBStudio canonical names
+irbstudio_portfolio.columns = [
+    'loan_id',
+    'balance',
+    'pd',
+    'score',
+    'rating',
+    'reporting_date',
+    'default_flag',
+    'into_default_flag',
+    'ltv'
+]
+
+# ===================================================================
+# STEP 5: Clean and Filter Data
+# ===================================================================
+# Convert balance to numeric
+irbstudio_portfolio['balance'] = pd.to_numeric(
+    irbstudio_portfolio['balance'],
+    errors='coerce'
+)
+
+# Remove zero balance loans
+irbstudio_portfolio = irbstudio_portfolio[
+    irbstudio_portfolio['balance'] > 0
+]
+
+# Remove loans with missing critical data
+irbstudio_portfolio = irbstudio_portfolio.dropna(
+    subset=['balance', 'pd', 'score', 'rating', 'reporting_date']
+)
+
+# Filter to recent 12 months
+if not irbstudio_portfolio['reporting_date'].isna().all():
+    max_date = irbstudio_portfolio['reporting_date'].max()
+    cutoff_date = max_date - pd.DateOffset(months=12)
+    irbstudio_portfolio = irbstudio_portfolio[
+        irbstudio_portfolio['reporting_date'] >= cutoff_date
+    ]
+
+# ===================================================================
+# STEP 6: Save Prepared Data
+# ===================================================================
+output_path = 'data/freddie_mac_prepared.csv'
+irbstudio_portfolio.to_csv(output_path, index=False)
+
+print(f"\n{'='*70}")
+print("FREDDIE MAC DATA PREPARATION COMPLETE")
+print(f"{'='*70}")
+print(f"Output file:     {output_path}")
+print(f"Total records:   {len(irbstudio_portfolio):,}")
+print(f"Unique loans:    {irbstudio_portfolio['loan_id'].nunique():,}")
+print(f"Date range:      {irbstudio_portfolio['reporting_date'].min()} to {irbstudio_portfolio['reporting_date'].max()}")
+print(f"Total exposure:  ${irbstudio_portfolio['balance'].sum():,.0f}")
+print(f"\nRating Distribution:")
+print(irbstudio_portfolio['rating'].value_counts().sort_index())
+print(f"{'='*70}")
+```
+
+---
+
+## Configuration Setup
+
+Create a file named `freddie_mac_config.yaml`:
+
+```yaml
+# ===================================================================
+# FREDDIE MAC PORTFOLIO CONFIGURATION
+# ===================================================================
+
+# Column mapping: Map your data columns to IRBStudio canonical fields
+column_mapping:
+  loan_id: loan_id
+  exposure: balance
+  pd: pd
+  score: score
+  rating: rating
+  date: reporting_date
+  default_flag: default_flag
+  into_default_flag: into_default_flag
+  ltv: ltv
+
+# Regulatory parameters for US residential mortgages
+regulatory:
+  jurisdiction: us
+  asset_correlation: 0.15      # Basel standard for residential mortgages
+  confidence_level: 0.999      # 99.9% confidence level for capital
+
+# ===================================================================
+# SCENARIOS
+# ===================================================================
+
+scenarios:
+  # Scenario 1: Current State
+  - name: "Current Model"
+    description: "Baseline FICO-based PD model (AUC ~0.72)"
+    pd_auc: 0.72                    # Typical AUC for FICO-only models
+    portfolio_default_rate: 0.015   # 1.5% (typical for prime mortgages)
+    lgd: 0.25                       # 25% Loss Given Default
+    new_loan_rate: 0.08             # 8% of portfolio is new originations
+    rating_pd_map:
+      AAA: 0.0005
+      AA: 0.001
+      A: 0.005
+      BBB: 0.01
+      BB: 0.03
+      B: 0.05
+      CCC: 0.10
+
+  # Scenario 2: Model Enhancement
+  - name: "Enhanced Model"
+    description: "Improved model with additional data sources (AUC ~0.78)"
+    pd_auc: 0.78                    # Better discrimination with payment history, DTI, etc.
+    portfolio_default_rate: 0.015   # Same default rate, better ranking
+    lgd: 0.25
+    new_loan_rate: 0.08
+    rating_pd_map:
+      AAA: 0.0005
+      AA: 0.001
+      A: 0.005
+      BBB: 0.01
+      BB: 0.03
+      B: 0.05
+      CCC: 0.10
+
+  # Scenario 3: Economic Stress
+  - name: "Stress Scenario"
+    description: "Recession scenario with elevated defaults"
+    pd_auc: 0.68                    # Model discrimination degrades under stress
+    portfolio_default_rate: 0.04    # 4% default rate (recession level)
+    lgd: 0.35                       # Higher LGD (depressed housing, longer foreclosures)
+    new_loan_rate: 0.03             # Lower origination activity
+    rating_pd_map:
+      AAA: 0.001
+      AA: 0.002
+      A: 0.01
+      BBB: 0.02
+      BB: 0.06
+      B: 0.10
+      CCC: 0.20
+```
+
+---
+
+## Running the Analysis
+
+### Example 1: Full Scenario Comparison
+
+```python
+from irbstudio import run_scenario_comparison
+
+# Run comparison of all three scenarios
+results = run_scenario_comparison(
+    config_path="freddie_mac_config.yaml",
+    portfolio_path="data/freddie_mac_prepared.csv",
+    n_iterations=5000,  # Higher iterations for production analysis
+    random_seed=42,
+    output_dir="results/freddie_mac_analysis"
+)
+
+# Print comprehensive results
+print("\n" + "="*70)
+print("FREDDIE MAC PORTFOLIO: AIRB CAPITAL IMPACT ANALYSIS")
+print("="*70)
+
+for scenario_name in ['Current Model', 'Enhanced Model', 'Stress Scenario']:
+    if scenario_name in results:
+        airb_stats = results[scenario_name]['AIRB']
+        
+        print(f"\n{scenario_name}:")
+        print(f"  Mean RWA:       ${airb_stats['mean']:>15,.0f}")
+        print(f"  Std Dev:        ${airb_stats['std']:>15,.0f}")
+        print(f"  Median RWA:     ${airb_stats['median']:>15,.0f}")
+        print(f"  P95 RWA:        ${airb_stats['percentiles']['P95']:>15,.0f}")
+        print(f"  P99 RWA:        ${airb_stats['percentiles']['P99']:>15,.0f}")
+
+# Calculate and display capital impact
+if 'capital_delta' in results:
+    savings = results['capital_delta']
+    current_rwa = results['Current Model']['AIRB']['mean']
+    enhanced_rwa = results['Enhanced Model']['AIRB']['mean']
+    
+    print(f"\n{'-'*70}")
+    print("CAPITAL IMPACT OF MODEL ENHANCEMENT:")
+    print(f"  Current Model RWA:      ${current_rwa:>15,.0f}")
+    print(f"  Enhanced Model RWA:     ${enhanced_rwa:>15,.0f}")
+    print(f"  RWA Reduction:          ${current_rwa - enhanced_rwa:>15,.0f}")
+    print(f"  Capital Savings (8%):   ${savings:>15,.0f}")
+    print(f"  Percentage Reduction:   {((current_rwa - enhanced_rwa) / current_rwa * 100):>14.1f}%")
+
+print("\n" + "="*70)
+print(f"Interactive Dashboard Saved:")
+print(f"  → results/freddie_mac_analysis/scenario_comparison_dashboard.html")
+print("="*70)
+```
+
+### Example 2: AIRB vs Standardized Approach
+
+```python
+from irbstudio import load_config
+from irbstudio.data.loader import load_portfolio
+from irbstudio.simulation.portfolio_simulator import PortfolioSimulator
+from irbstudio.engine.integrated_analysis import IntegratedAnalysis
+from irbstudio.engine.mortgage import AIRBMortgageCalculator, SAMortgageCalculator
+
+# Load configuration and data
+config = load_config("freddie_mac_config.yaml")
+portfolio_df = load_portfolio(
+    "data/freddie_mac_prepared.csv",
+    config.column_mapping
+)
+
+# Create analysis engine
+analysis = IntegratedAnalysis()
+
+# Add both AIRB and SA calculators
+analysis.add_calculator('AIRB', AIRBMortgageCalculator(
+    regulatory_params={
+        'lgd': 0.25,
+        'asset_correlation': 0.15,
+        'confidence_level': 0.999
+    }
+))
+analysis.add_calculator('SA', SAMortgageCalculator())
+
+# Create simulator for current model scenario
+current_scenario = config.scenarios[0]  # "Current Model"
+simulator = PortfolioSimulator(
+    portfolio_df=portfolio_df,
+    score_to_rating_bounds={
+        'AAA': (0.00, 0.02),
+        'AA': (0.02, 0.05),
+        'A': (0.05, 0.10),
+        'BBB': (0.10, 0.20),
+        'BB': (0.20, 0.30),
+        'B': (0.30, 0.50),
+        'CCC': (0.50, 1.00)
+    },
+    rating_col='rating',
+    loan_id_col='loan_id',
+    date_col='reporting_date',
+    default_col='default_flag',
+    into_default_flag_col='into_default_flag',
+    score_col='score',
+    target_auc=current_scenario.pd_auc
+)
+
+# Add scenario and run
+analysis.add_scenario('Current Model', simulator, n_iterations=2000)
+results = analysis.run_scenario(
+    scenario_name='Current Model',
+    random_seed=42,
+    application_start_date='2024-01-01'
+)
+
+# Compare AIRB vs SA
+airb_mean = results['AIRB']['mean']
+sa_mean = results['SA']['mean']
+rwa_reduction = sa_mean - airb_mean
+capital_savings = rwa_reduction * 0.08
+
+print("\n" + "="*70)
+print("AIRB vs STANDARDIZED APPROACH COMPARISON")
+print("="*70)
+print(f"\nStandardized Approach (SA):")
+print(f"  Mean RWA:               ${sa_mean:>15,.0f}")
+print(f"\nAdvanced IRB (AIRB):")
+print(f"  Mean RWA:               ${airb_mean:>15,.0f}")
+print(f"\nBenefit of AIRB Adoption:")
+print(f"  RWA Reduction:          ${rwa_reduction:>15,.0f}")
+print(f"  Capital Freed (8%):     ${capital_savings:>15,.0f}")
+print(f"  Percentage Reduction:   {(rwa_reduction / sa_mean * 100):>14.1f}%")
+print("="*70)
+```
+
+---
+
+## Interpreting Results
+
+### Key Metrics Explained
+
+#### 1. Mean RWA
+- **Definition**: Average RWA across all Monte Carlo simulations
+- **Use**: Primary metric for capital planning and budgeting
+- **Typical Values** (for $1B mortgage portfolio):
+  - **Conservative AIRB**: $300M - $450M (30-45% RWA density)
+  - **Moderate AIRB**: $200M - $300M (20-30%)
+  - **Optimized AIRB**: $150M - $200M (15-20%)
+  - **SA Baseline**: $350M - $500M (35-50%)
+
+#### 2. Standard Deviation
+- **Definition**: Measure of RWA volatility/uncertainty
+- **Use**: Understanding model risk and capital buffer sizing
+- **Interpretation**:
+  - **Low (< 5% of mean)**: Stable portfolio, low model uncertainty
+  - **Medium (5-15%)**: Typical for well-established mortgage portfolios
+  - **High (> 15%)**: High uncertainty - consider additional validation
+
+#### 3. Percentiles (P95, P99)
+- **P95**: 95th percentile - only 5% of simulations exceed this value
+- **P99**: 99th percentile - only 1% of simulations exceed this value
+- **Use Cases**:
+  - **P95**: Stress testing, ICAAP capital adequacy scenarios
+  - **P99**: Severe stress, regulatory capital buffer determination
+
+### Dashboard Visualization Guide
+
+The generated HTML dashboard (`scenario_comparison_dashboard.html`) includes:
+
+**1. RWA Distribution Plots**
+- **Histogram**: Shows frequency of RWA outcomes across simulations
+- **KDE Overlay**: Smooth probability density curve
+- **Percentile Markers**: Vertical lines at P5, P50 (median), P95
+- **Interpretation**:
+  - **Symmetric distribution** = Stable, well-behaved model
+  - **Right skew** = Tail risk (some very high RWA outcomes)
+  - **Bimodal** = Portfolio segments behaving differently
+
+**2. Scenario Comparison Charts**
+- **Grouped Bars**: Mean RWA for each scenario side-by-side
+- **Error Bars**: ±1 standard deviation range
+- **Use**: Quick visual assessment of scenario differences
+
+**3. Statistical Summary Tables**
+
+Example output for Freddie Mac portfolio:
+
+| Metric | Current Model | Enhanced Model | Stress Scenario |
+|--------|---------------|----------------|-----------------|
+| Mean RWA | $287M | $251M | $462M |
+| Std Dev | $16M | $14M | $39M |
+| Median | $285M | $249M | $458M |
+| P95 RWA | $315M | $275M | $531M |
+| Skewness | 0.14 | 0.11 | 0.32 |
+| Capital (8%) | $23.0M | $20.1M | $37.0M |
+
+### Business Case Calculation
+
+#### Model Improvement ROI
 
 ```
-SA Approach:       Mean RWA = $485M
-AIRB Approach:     Mean RWA = $325M
-RWA Reduction:     $160M
-Capital Savings:   $160M × 8% = $12.8M
+Portfolio:           $1.0B
+Current Model:       $287M RWA → $23.0M capital (8% × RWA)
+Enhanced Model:      $251M RWA → $20.1M capital
 
-Annual savings justify AIRB implementation costs and ongoing model maintenance.
+RWA Reduction:       $36M
+Capital Freed:       $2.9M
+
+Model Development:
+  Initial Cost:      $500K (one-time)
+  Annual Maintenance: $100K/year
+
+ROI Analysis:
+  Annual Benefit:    $2.9M (capital freed)
+  Annual Cost:       $0.1M (maintenance)
+  Net Annual:        $2.8M
+  
+  Payback Period:    $0.5M / $2.8M = 0.18 years (~2 months!)
+  5-Year NPV (10%):  $9.55M
+  
+Conclusion: STRONG business case for model enhancement
+```
+
+#### AIRB vs SA Decision Framework
+
+```
+Portfolio:           $1.0B residential mortgages
+Current Approach:    Standardized (SA)
+
+Comparison:
+  SA Mean RWA:       $450M → $36.0M capital
+  AIRB Mean RWA:     $287M → $23.0M capital
+  
+  Capital Freed:     $13.0M
+
+AIRB Implementation:
+  Initial Investment: $2-5M (systems, models, validation, training)
+  Annual Costs:       $0.5-1M (operations, validation, reporting)
+  
+Break-Even:          2-5M / 13M = 0.15-0.38 years (2-5 months)
+
+ROI (5 years):       ($13M × 5 - $5M - $1M × 5) / ($5M + $1M × 5) 
+                     = $50M / $10M = 500%
+
+Conclusion: AIRB adoption HIGHLY beneficial for this portfolio size
 ```
 
 ---
@@ -1067,135 +800,361 @@ Annual savings justify AIRB implementation costs and ongoing model maintenance.
 
 ### Example 3: Vintage Analysis
 
-Analyze different loan vintages separately:
+Analyze different loan origination years separately:
 
 ```python
-# Group by origination year
-portfolio_df['origination_year'] = portfolio_df['reporting_date'].dt.year - portfolio_df['loan_age'] // 12
+# Assuming we can derive origination_year from first_payment_date
+portfolio_df['first_payment_date'] = pd.to_datetime(
+    orig_df['first_payment_date'].astype(str),
+    format='%Y%m'
+)
+portfolio_df['origination_year'] = portfolio_df['first_payment_date'].dt.year
 
-vintages = {}
-for year in [2020, 2021, 2022, 2023]:
+vintages_rwa = {}
+
+for year in [2021, 2022, 2023, 2024]:
     vintage_df = portfolio_df[portfolio_df['origination_year'] == year]
+    
+    if len(vintage_df) < 100:  # Skip small samples
+        print(f"Skipping {year}: insufficient data ({len(vintage_df)} loans)")
+        continue
     
     simulator = PortfolioSimulator(
         portfolio_df=vintage_df,
+        score_to_rating_bounds={'A': (0.03, 0.10), 'B': (0.10, 0.20)},
         target_auc=0.75
     )
     
     analysis.add_scenario(f'Vintage_{year}', simulator, n_iterations=1000)
     results = analysis.run_scenario(f'Vintage_{year}', random_seed=42)
     
-    vintages[year] = results['AIRB']['mean']
+    vintages_rwa[year] = {
+        'mean_rwa': results['AIRB']['mean'],
+        'exposure': vintage_df['balance'].sum(),
+        'rwa_density': results['AIRB']['mean'] / vintage_df['balance'].sum(),
+        'avg_fico': vintage_df['credit_score'].mean(),
+        'avg_ltv': vintage_df['ltv'].mean()
+    }
 
-# Compare vintages
-print("\nRWA by Vintage:")
-for year, rwa in vintages.items():
-    print(f"  {year}: ${rwa:,.0f}")
+# Print vintage comparison
+print("\n" + "="*70)
+print("RWA BY ORIGINATION VINTAGE")
+print("="*70)
+print(f"{'Year':<6} {'Exposure':>12} {'Mean RWA':>12} {'Density':>9} {'Avg FICO':>10} {'Avg LTV':>9}")
+print("-" * 70)
+for year, metrics in sorted(vintages_rwa.items()):
+    print(f"{year:<6} ${metrics['exposure']:>11,.0f} ${metrics['mean_rwa']:>11,.0f} "
+          f"{metrics['rwa_density']:>8.1%} {metrics['avg_fico']:>10.0f} {metrics['avg_ltv']:>8.0f}%")
+print("="*70)
 ```
 
 ### Example 4: Geographic Segmentation
 
-Analyze RWA by state/region:
+Analyze RWA by state or region:
 
 ```python
-# Assume 'property_state' column exists
-states = portfolio_df['property_state'].unique()
+# Assuming property_state is available in portfolio_df
+states = portfolio_df['property_state'].value_counts().head(10).index
 
 state_rwa = {}
-for state in states[:5]:  # Top 5 states by volume
+
+for state in states:
     state_df = portfolio_df[portfolio_df['property_state'] == state]
     
     if len(state_df) < 100:  # Skip small segments
         continue
     
-    simulator = PortfolioSimulator(portfolio_df=state_df, target_auc=0.75)
+    simulator = PortfolioSimulator(
+        portfolio_df=state_df,
+        target_auc=0.75
+    )
+    
     analysis.add_scenario(f'State_{state}', simulator, n_iterations=500)
     results = analysis.run_scenario(f'State_{state}', random_seed=42)
     
     state_rwa[state] = {
-        'mean': results['AIRB']['mean'],
+        'mean_rwa': results['AIRB']['mean'],
         'exposure': state_df['balance'].sum(),
-        'rwa_density': results['AIRB']['mean'] / state_df['balance'].sum()
+        'rwa_density': results['AIRB']['mean'] / state_df['balance'].sum(),
+        'avg_fico': state_df['credit_score'].mean(),
+        'avg_ltv': state_df['ltv'].mean(),
+        'default_rate': state_df['default_flag'].mean()
     }
 
-# Print summary
-print("\nRWA by State:")
-print(f"{'State':<10} {'Exposure':>15} {'RWA':>15} {'Density':>10}")
-print("-" * 55)
-for state, metrics in state_rwa.items():
-    print(f"{state:<10} ${metrics['exposure']:>14,.0f} ${metrics['mean']:>14,.0f} {metrics['rwa_density']:>9.1%}")
+# Print geographic analysis
+print("\n" + "="*75)
+print("RWA BY STATE (TOP 10 BY EXPOSURE)")
+print("="*75)
+print(f"{'State':<6} {'Exposure':>12} {'RWA':>12} {'Density':>9} {'FICO':>7} {'LTV':>6} {'Def%':>6}")
+print("-" * 75)
+for state, metrics in sorted(state_rwa.items(), key=lambda x: x[1]['exposure'], reverse=True):
+    print(f"{state:<6} ${metrics['exposure']:>11,.0f} ${metrics['mean_rwa']:>11,.0f} "
+          f"{metrics['rwa_density']:>8.1%} {metrics['avg_fico']:>7.0f} {metrics['avg_ltv']:>5.0f}% "
+          f"{metrics['default_rate']:>5.1%}")
+print("="*75)
 ```
 
-### Example 5: Temporal Dynamics
+### Example 5: Product Type Comparison
 
-Analyze how RWA evolves over time:
+Compare Fixed Rate Mortgages (FRM) vs Adjustable Rate Mortgages (ARM):
 
 ```python
-# Run with process_all_dates to see temporal dynamics
-results = analysis.run_scenario(
-    scenario_name='Current Model',
-    random_seed=42,
-    process_all_dates=True  # Separate simulation for each date
-)
+# Assuming product_type is available
+products = ['FRM', 'ARM']
 
-# Extract temporal results (if stored)
-if 'date_results' in results:
-    import plotly.graph_objects as go
+for product in products:
+    product_df = portfolio_df[portfolio_df['product_type'] == product]
     
-    dates = sorted(results['date_results'].keys())
-    mean_rwa = [results['date_results'][d]['AIRB']['mean'] for d in dates]
+    if len(product_df) < 50:
+        print(f"Skipping {product}: insufficient data")
+        continue
     
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates,
-        y=mean_rwa,
-        mode='lines+markers',
-        name='Mean RWA'
-    ))
-    fig.update_layout(
-        title='RWA Evolution Over Time',
-        xaxis_title='Date',
-        yaxis_title='Mean RWA ($)',
-        hovermode='x unified'
+    simulator = PortfolioSimulator(
+        portfolio_df=product_df,
+        target_auc=0.75
     )
-    fig.write_html('results/temporal_rwa.html')
+    
+    analysis.add_scenario(f'Product_{product}', simulator, n_iterations=1000)
+    results = analysis.run_scenario(f'Product_{product}', random_seed=42)
+    
+    print(f"\n{product} Product Analysis:")
+    print(f"  Loan Count:      {len(product_df):,}")
+    print(f"  Total Exposure:  ${product_df['balance'].sum():,.0f}")
+    print(f"  Mean RWA:        ${results['AIRB']['mean']:,.0f}")
+    print(f"  RWA Density:     {results['AIRB']['mean'] / product_df['balance'].sum():.1%}")
+    print(f"  Avg Interest:    {product_df['current_interest_rate'].mean():.2f}%")
 ```
 
 ---
 
-## Summary and Next Steps
+## Complete Example Script
+
+Here's a production-ready script that combines all steps:
+
+```python
+#!/usr/bin/env python3
+"""
+Complete Freddie Mac Data Preparation and Analysis Script
+Transforms raw Freddie Mac data and runs AIRB scenario analysis
+"""
+
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from irbstudio import run_scenario_comparison
+
+
+def prepare_freddie_mac_data(orig_file, perf_file, output_file, months_back=12):
+    """Prepare Freddie Mac data for IRBStudio"""
+    
+    # Column definitions
+    orig_columns = [
+        'credit_score', 'first_payment_date', 'first_time_homebuyer_flag',
+        'maturity_date', 'msa', 'mi_percentage', 'number_of_units',
+        'occupancy_status', 'original_cltv', 'original_dti', 'original_upb',
+        'original_ltv', 'original_interest_rate', 'channel',
+        'prepayment_penalty_flag', 'product_type', 'property_state',
+        'property_type', 'postal_code', 'loan_sequence_number',
+        'loan_purpose', 'original_loan_term', 'number_of_borrowers',
+        'seller_name', 'servicer_name', 'super_conforming_flag',
+        'pre_harp_loan_sequence_number'
+    ]
+    
+    perf_columns = [
+        'loan_sequence_number', 'monthly_reporting_period',
+        'current_actual_upb', 'current_loan_delinquency_status',
+        'loan_age', 'remaining_months_to_maturity',
+        'repurchase_flag', 'modification_flag', 'zero_balance_code',
+        'zero_balance_effective_date', 'current_interest_rate',
+        'current_deferred_upb', 'due_date_of_last_paid_installment',
+        'mi_recoveries', 'net_sales_proceeds', 'non_mi_recoveries',
+        'expenses', 'legal_costs', 'maintenance_costs',
+        'taxes_and_insurance', 'miscellaneous_expenses',
+        'actual_loss_calculation', 'modification_cost',
+        'step_modification_flag', 'deferred_payment_plan',
+        'estimated_ltv', 'zero_balance_removal_upb',
+        'delinquent_accrued_interest', 'delinquency_due_to_disaster',
+        'borrower_assistance_status_code', 'current_month_modification_cost'
+    ]
+    
+    # Load data
+    print("Loading Freddie Mac data...")
+    orig_df = pd.read_csv(orig_file, sep='|', names=orig_columns, header=None, low_memory=False)
+    perf_df = pd.read_csv(perf_file, sep='|', names=perf_columns, header=None, low_memory=False)
+    
+    # Merge
+    portfolio = perf_df.merge(orig_df, on='loan_sequence_number', how='inner')
+    
+    # Transform dates
+    portfolio['reporting_date'] = pd.to_datetime(
+        portfolio['monthly_reporting_period'].astype(str),
+        format='%Y%m',
+        errors='coerce'
+    )
+    
+    # Filter to recent data
+    max_date = portfolio['reporting_date'].max()
+    cutoff_date = max_date - pd.DateOffset(months=months_back)
+    portfolio = portfolio[portfolio['reporting_date'] >= cutoff_date]
+    
+    # Normalize score
+    portfolio['credit_score'] = pd.to_numeric(portfolio['credit_score'], errors='coerce')
+    portfolio['normalized_score'] = 1 - ((portfolio['credit_score'] - 300) / 550)
+    portfolio['normalized_score'] = portfolio['normalized_score'].clip(0, 1)
+    
+    # Assign ratings
+    def assign_rating(score):
+        if pd.isna(score): return 'B'
+        if score >= 780: return 'AAA'
+        elif score >= 740: return 'AA'
+        elif score >= 700: return 'A'
+        elif score >= 660: return 'BBB'
+        elif score >= 620: return 'BB'
+        elif score >= 580: return 'B'
+        else: return 'CCC'
+    
+    portfolio['rating'] = portfolio['credit_score'].apply(assign_rating)
+    
+    # Estimate PD
+    rating_pd = {'AAA': 0.0005, 'AA': 0.001, 'A': 0.005, 'BBB': 0.01, 
+                 'BB': 0.03, 'B': 0.05, 'CCC': 0.10}
+    portfolio['pd'] = portfolio['rating'].map(rating_pd)
+    
+    # LTV adjustment
+    portfolio['original_ltv'] = pd.to_numeric(portfolio['original_ltv'], errors='coerce')
+    ltv_adj = 1 + 0.3 * (portfolio['original_ltv'] - 80) / 20
+    portfolio['pd'] = portfolio['pd'] * ltv_adj.fillna(1.0)
+    
+    # Delinquency adjustment
+    portfolio['delinq'] = portfolio['current_loan_delinquency_status'].fillna('0').astype(str).str.strip()
+    delinq_mult = {'0': 1.0, '1': 2.0, '2': 4.0, '3': 8.0}
+    portfolio['pd'] = portfolio['pd'] * portfolio['delinq'].apply(lambda x: delinq_mult.get(x, 1.0))
+    portfolio['pd'] = portfolio['pd'].clip(0.0001, 0.50)
+    
+    # Default flags
+    portfolio['default_flag'] = portfolio['delinq'].apply(lambda x: 1 if x not in ['0','1','2',''] else 0)
+    portfolio = portfolio.sort_values(['loan_sequence_number', 'reporting_date'])
+    portfolio['prev_default'] = portfolio.groupby('loan_sequence_number')['default_flag'].shift(1).fillna(0)
+    portfolio['into_default_flag'] = ((portfolio['default_flag'] == 1) & (portfolio['prev_default'] == 0)).astype(int)
+    
+    # Prepare output
+    output_df = portfolio[[
+        'loan_sequence_number', 'current_actual_upb', 'pd', 'normalized_score',
+        'rating', 'reporting_date', 'default_flag', 'into_default_flag', 'original_ltv'
+    ]].copy()
+    
+    output_df.columns = ['loan_id', 'balance', 'pd', 'score', 'rating',
+                         'reporting_date', 'default_flag', 'into_default_flag', 'ltv']
+    
+    # Clean
+    output_df['balance'] = pd.to_numeric(output_df['balance'], errors='coerce')
+    output_df = output_df[output_df['balance'] > 0]
+    output_df = output_df.dropna(subset=['balance', 'pd', 'score', 'rating', 'reporting_date'])
+    
+    # Save
+    output_df.to_csv(output_file, index=False)
+    
+    print(f"\n{'='*70}")
+    print("PREPARATION COMPLETE")
+    print(f"{'='*70}")
+    print(f"Output:      {output_file}")
+    print(f"Records:     {len(output_df):,}")
+    print(f"Unique loans: {output_df['loan_id'].nunique():,}")
+    print(f"Date range:  {output_df['reporting_date'].min()} to {output_df['reporting_date'].max()}")
+    print(f"Exposure:    ${output_df['balance'].sum():,.0f}")
+    print(f"\nRating Distribution:")
+    print(output_df['rating'].value_counts().sort_index())
+    print(f"{'='*70}\n")
+    
+    return output_df
+
+
+if __name__ == "__main__":
+    # Step 1: Prepare data
+    prepared_data = prepare_freddie_mac_data(
+        orig_file='data/FM/sample_orig_2024.txt',
+        perf_file='data/FM/sample_svcg_2024.txt',
+        output_file='data/freddie_mac_prepared.csv',
+        months_back=12
+    )
+    
+    # Step 2: Run analysis
+    print("Running AIRB scenario analysis...")
+    results = run_scenario_comparison(
+        config_path='freddie_mac_config.yaml',
+        portfolio_path='data/freddie_mac_prepared.csv',
+        n_iterations=5000,
+        random_seed=42,
+        output_dir='results/freddie_mac_analysis'
+    )
+    
+    # Step 3: Display results
+    print("\n" + "="*70)
+    print("ANALYSIS COMPLETE")
+    print("="*70)
+    print(f"Dashboard: results/freddie_mac_analysis/scenario_comparison_dashboard.html")
+    print("="*70)
+```
+
+---
+
+## Summary
 
 ### Key Takeaways
 
-1. **Data Preparation**: Fannie Mae data requires transformation to IRBStudio format
-2. **Rating Creation**: Derived ratings from credit scores using industry standard bins
-3. **PD Estimation**: Estimated PD from delinquency status and loan characteristics
-4. **Configuration**: Realistic scenarios based on typical mortgage portfolio characteristics
-5. **Analysis**: Monte Carlo simulation provides full distribution of RWA outcomes
-6. **Interpretation**: Focus on mean for planning, P95 for stress, std for uncertainty
+✅ **Freddie Mac is IRBStudio's primary test dataset**  
+✅ **Pipe-delimited format (|) requires explicit column definitions**  
+✅ **YYYYMM date format needs parsing to datetime**  
+✅ **PD and ratings must be derived (not provided in raw data)**  
+✅ **Rich loan characteristics enable advanced segmentation analysis**  
+✅ **Multiple scenarios enable comprehensive capital impact assessment**
 
-### Best Practices for Fannie Mae Data
+### Best Practices
 
-✅ **Filter to recent data** (last 12-24 months) for representative portfolio
-✅ **Handle missing values** appropriately (impute or exclude)
-✅ **Validate rating distributions** match your internal policy
-✅ **Calibrate PD estimates** to actual default rates in your portfolio
-✅ **Document assumptions** clearly for audit trail
-✅ **Run sensitivity analysis** on key parameters (AUC, LGD, default rate)
+1. ✅ **Filter to recent 12-24 months** for current portfolio representation
+2. ✅ **Validate FICO distribution** (expect 700-750 average for prime mortgages)
+3. ✅ **Exclude zero balance loans** from analysis
+4. ✅ **Calibrate PD adjustments** to your institution's historical experience
+5. ✅ **Document all assumptions** for audit trail and validation
+6. ✅ **Run sensitivity analysis** on key parameters (AUC, LGD, default rate)
+7. ✅ **Segment by vintage and geography** to identify risk concentrations
 
-### Further Reading
+### Data Quality Checks
 
-- **Fannie Mae Documentation**: [Single-Family Loan Data](https://capitalmarkets.fanniemae.com)
-- **Basel Framework**: [BCBS239 - AIRB Approach](https://www.bis.org/bcbs/publ/d347.pdf)
-- **IRBStudio Docs**: [User Guide](user_guide.md) | [API Reference](api_reference.md)
+Before running production analysis:
+
+```python
+print("="*70)
+print("DATA QUALITY REPORT")
+print("="*70)
+print(f"Missing credit scores:    {portfolio['credit_score'].isna().sum():,}")
+print(f"Missing LTV:              {portfolio['original_ltv'].isna().sum():,}")
+print(f"Zero balances:            {(portfolio['current_actual_upb'] == 0).sum():,}")
+print(f"\nDelinquency Status Distribution:")
+print(portfolio['delinq'].value_counts().sort_index())
+print(f"\nCredit Score Statistics:")
+print(portfolio['credit_score'].describe())
+print(f"\nLTV Statistics:")
+print(portfolio['original_ltv'].describe())
+print("="*70)
+```
+
+### Resources
+
+- **Freddie Mac Dataset**: https://www.freddiemac.com/research/datasets/sf-loanlevel-dataset
+- **IRBStudio Documentation**: [User Guide](user_guide.md) | [API Reference](api_reference.md)
+- **Example Scripts**: `examples/freddie_mac_dashboard_example.py`
+- **Sample Data**: `data/FM/sample_orig_2024.txt`, `data/FM/sample_svcg_2024.txt`
+- **Basel Framework**: [BCBS 424 - AIRB Requirements](https://www.bis.org/bcbs/publ/d424.pdf)
 
 ### Getting Help
 
 - **GitHub Issues**: [Report issues or ask questions](https://github.com/jacekkrawiec/IRBStudio/issues)
-- **Example Notebooks**: See `notebooks/freddie_mac_sample_dataset.ipynb` for similar workflow
+- **Example Notebooks**: See `notebooks/freddie_mac_sample_dataset.ipynb`
+- **Email Support**: Contact the maintainer for technical assistance
 
 ---
 
-*This tutorial demonstrates IRBStudio capabilities with realistic data. Always validate results with your institution's model validation team before making business decisions.*
+*This tutorial demonstrates IRBStudio capabilities using Freddie Mac's loan-level dataset structure. Always validate results with your institution's model validation team before making business decisions.*
 
-*Last Updated: January 2025*
+*Last Updated: October 2025*
