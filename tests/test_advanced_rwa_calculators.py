@@ -669,3 +669,35 @@ class TestRWAResultAdvanced:
             segment_breakdown = result.get_breakdown('segment')
             # Should return dict or empty dict
             assert isinstance(segment_breakdown, dict)
+    
+    def test_base_summarize_rwa_multiple_breakdowns(self):
+        """Test RWA summarization with multiple breakdown dimensions."""
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={'asset_correlation': 0.15, 'lgd': 0.25}
+        )
+        
+        # Portfolio with multiple breakable dimensions
+        portfolio = pd.DataFrame({
+            'exposure': [100000, 150000, 200000, 250000, 300000, 350000],
+            'pd': [0.01, 0.02, 0.03, 0.05, 0.07, 0.10],
+            'rating': ['AAA', 'AAA', 'AA', 'AA', 'A', 'A'],
+            'region': ['North', 'South', 'North', 'South', 'North', 'South'],
+            'product': ['Fixed', 'Variable', 'Fixed', 'Variable', 'Fixed', 'Variable']
+        })
+        
+        result = calculator.calculate(portfolio)
+        
+        # Should be able to get breakdowns by different dimensions
+        if hasattr(result, 'get_breakdown'):
+            # Try rating breakdown
+            rating_breakdown = result.get_breakdown('rating')
+            assert isinstance(rating_breakdown, dict)
+            
+            # Try region breakdown
+            region_breakdown = result.get_breakdown('region')
+            assert isinstance(region_breakdown, dict)
+            
+            # Try product breakdown  
+            product_breakdown = result.get_breakdown('product')
+            assert isinstance(product_breakdown, dict)
+

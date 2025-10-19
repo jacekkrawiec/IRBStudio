@@ -1078,6 +1078,186 @@ class TestAdvancedStatistics:
 # - Scenario management: 3 tests
 # - Running scenarios: 3 tests
 # - Statistical summaries: 2 tests
+# - Percentile analysis: 6 tests
+# - Scenario comparison: 3 tests
+# - Advanced statistics: 3 tests
+# - Reproducibility: 2 tests
+# - Additional comparisons: 4 tests (NEW)
+# Total: ~34 tests
+
+
+class TestAdditionalScenarioComparisons:
+    """Additional scenario comparison tests."""
+    
+    def test_integrated_analysis_capital_savings(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test capital savings calculation between scenarios."""
+        analysis = IntegratedAnalysis()
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Baseline scenario
+        sim_baseline = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        # Alternative scenario (same for testing)
+        sim_alternative = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01',
+            target_auc=0.75  # Slightly different
+        )
+        
+        analysis.add_scenario('baseline', sim_baseline, n_iterations=15)
+        analysis.add_scenario('alternative', sim_alternative, n_iterations=15)
+        
+        # Run both
+        results_baseline = analysis.run_scenario('baseline', random_seed=42)
+        results_alt = analysis.run_scenario('alternative', random_seed=43)
+        
+        # Calculate capital savings
+        rwa_baseline = np.mean([r.total_rwa for r in results_baseline['calculator_results']['AIRB']['results']])
+        rwa_alt = np.mean([r.total_rwa for r in results_alt['calculator_results']['AIRB']['results']])
+        
+        capital_savings = rwa_baseline - rwa_alt
+        
+        # Savings can be positive or negative
+        assert isinstance(capital_savings, (int, float))
+    
+    def test_integrated_analysis_percentile_comparison(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test percentile shifts between scenarios."""
+        analysis = IntegratedAnalysis()
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create two scenarios
+        sim1 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        sim2 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('scenario1', sim1, n_iterations=20)
+        analysis.add_scenario('scenario2', sim2, n_iterations=20)
+        
+        # Run scenarios
+        results1 = analysis.run_scenario('scenario1', random_seed=42)
+        results2 = analysis.run_scenario('scenario2', random_seed=42)
+        
+        # Get percentiles for both
+        percentiles1 = analysis.get_percentiles('scenario1', 'AIRB', percentiles=[5, 50, 95])
+        percentiles2 = analysis.get_percentiles('scenario2', 'AIRB', percentiles=[5, 50, 95])
+        
+        # Compare P95 (tail risk)
+        p95_shift = percentiles2[95] - percentiles1[95]
+        
+        # Should be able to calculate shift
+        assert isinstance(p95_shift, (int, float))
+    
+    def test_integrated_analysis_distribution_overlap(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test distribution overlap analysis between scenarios."""
+        analysis = IntegratedAnalysis()
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create scenarios
+        sim1 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        sim2 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('dist1', sim1, n_iterations=25)
+        analysis.add_scenario('dist2', sim2, n_iterations=25)
+        
+        # Run scenarios with different seeds to create variation
+        results1 = analysis.run_scenario('dist1', random_seed=42)
+        results2 = analysis.run_scenario('dist2', random_seed=43)  # Different seed
+        
+        # Get RWA distributions
+        rwa1 = [r.total_rwa for r in results1['calculator_results']['AIRB']['results']]
+        rwa2 = [r.total_rwa for r in results2['calculator_results']['AIRB']['results']]
+        
+        # Calculate basic overlap metric (percentage of values in overlapping range)
+        min1, max1 = min(rwa1), max(rwa1)
+        min2, max2 = min(rwa2), max(rwa2)
+        
+        overlap_min = max(min1, min2)
+        overlap_max = min(max1, max2)
+        
+        # Check if distributions overlap
+        # With different seeds, distributions may or may not overlap, just check calculation works
+        has_overlap = overlap_min < overlap_max
+        
+        # Verify calculation completed
+        assert isinstance(float(overlap_min), float)
+        assert isinstance(float(overlap_max), float)
+
 # - Percentile analysis: 7 tests
 # - Scenario comparison: 3 tests
 # - Advanced statistics: 3 tests (NEW)

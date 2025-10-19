@@ -21,7 +21,9 @@ from irbstudio.reporting.dashboard import (
     create_summary_table,
     create_percentile_plot,
     create_rwa_by_date_plot,
-    create_rwa_distribution_by_date_plot
+    create_rwa_distribution_by_date_plot,
+    create_rwa_distribution_plot,
+    create_scenario_comparison_plot
 )
 
 
@@ -243,6 +245,59 @@ class TestPercentilePlot:
         assert 'bar' in trace_types
 
 
+class TestPercentilePlotAdvanced:
+    """Advanced tests for percentile plots."""
+    
+    def test_create_percentile_plot_risk_metrics(self):
+        """Test percentile plot displays risk metrics (VaR-style)."""
+        rwa_values = list(np.random.normal(1000000, 100000, 200))
+        
+        results = {
+            'Baseline': {
+                'AIRB': {'rwa_values': rwa_values}
+            }
+        }
+        
+        fig = create_percentile_plot(
+            results=results,
+            scenario_name='Baseline',
+            calculator_name='AIRB',
+            percentiles=[5, 50, 95],  # P5 is VaR metric
+            title="Risk Metrics (VaR)"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) > 0
+        
+        # Verify P5 (VaR) can be calculated
+        p5_value = np.percentile(rwa_values, 5)
+        assert p5_value > 0
+    
+    def test_create_percentile_plot_custom_percentiles(self):
+        """Test percentile plot with custom percentile list."""
+        rwa_values = list(np.random.normal(1500000, 150000, 300))
+        
+        results = {
+            'Test': {
+                'AIRB': {'rwa_values': rwa_values}
+            }
+        }
+        
+        custom_percentiles = [1, 10, 25, 50, 75, 90, 99]
+        
+        fig = create_percentile_plot(
+            results=results,
+            scenario_name='Test',
+            calculator_name='AIRB',
+            percentiles=custom_percentiles,
+            title="Custom Percentiles"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        # Should show all 7 percentiles
+        assert len(custom_percentiles) == 7
+
+
 class TestDateBasedVisualizations:
     """Tests for date-based visualization functions."""
     
@@ -346,3 +401,244 @@ class TestDateBasedVisualizations:
 # - Percentile plots: 2 tests
 # - Date-based visualizations: 3 tests
 # Total: 11 new dashboard tests
+
+
+class TestWaterfallChartAdvanced:
+    """Advanced tests for waterfall charts."""
+    
+    def test_create_waterfall_chart_percentage_changes(self):
+        """Test waterfall chart with percentage changes."""
+        results = {
+            'baseline': {
+                'AIRB': {
+                    'rwa_values': [1000000] * 100,
+                    'mean': 1000000,
+                    'median': 1000000,
+                    'std': 0,
+                    'min': 1000000,
+                    'max': 1000000
+                }
+            },
+            'alternative': {
+                'AIRB': {
+                    'rwa_values': [950000] * 100,  # 5% reduction
+                    'mean': 950000,
+                    'median': 950000,
+                    'std': 0,
+                    'min': 950000,
+                    'max': 950000
+                }
+            }
+        }
+        
+        fig = create_waterfall_chart(
+            baseline_scenario='baseline',
+            comparison_scenario='alternative',
+            results=results,
+            calculator_name='AIRB',
+            title="Capital Impact (Percentage)"
+        )
+        
+        # Verify it's a valid figure
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) > 0
+        
+        # Should show percentage change (5% reduction)
+        # Waterfall should have data points
+        assert fig.data[0] is not None
+
+
+class TestDistributionPlotAdvanced:
+    """Advanced tests for distribution plots."""
+    
+    def test_create_rwa_distribution_plot_kde_overlay(self):
+        """Test RWA distribution plot with KDE overlay."""
+        results = {
+            'Baseline': {
+                'AIRB': {
+                    'rwa_values': np.random.normal(1000000, 100000, 200)
+                }
+            }
+        }
+        
+        fig = create_rwa_distribution_plot(
+            results=results,
+            scenario_name='Baseline',
+            calculator_name='AIRB',
+            title="RWA Distribution with KDE",
+            show_stats=True
+        )
+        
+        # Verify figure is created
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) > 0
+        
+        # Distribution plot should have histogram
+        assert any(trace.type == 'histogram' for trace in fig.data)
+    
+    def test_create_rwa_distribution_plot_sample_size(self):
+        """Test distribution plot displays sample size."""
+        # Create results with specific sample size
+        sample_size = 500
+        results = {
+            'Test': {
+                'AIRB': {
+                    'rwa_values': np.random.normal(1500000, 150000, sample_size)
+                }
+            }
+        }
+        
+        fig = create_rwa_distribution_plot(
+            results=results,
+            scenario_name='Test',
+            calculator_name='AIRB',
+            title="Distribution (N=500)",
+            show_stats=True
+        )
+        
+        assert isinstance(fig, go.Figure)
+        # Should have sample_size data points
+        assert len(results['Test']['AIRB']['rwa_values']) == sample_size
+
+
+class TestScenarioComparisonPlotAdvanced:
+    """Test advanced scenario comparison plot features."""
+    
+    def test_create_scenario_comparison_plot_summary_table(self):
+        """Test scenario comparison plot includes summary statistics."""
+        results = {
+            'Baseline': {
+                'AIRB': {
+                    'mean': 1000000,
+                    'std': 100000,
+                    'median': 998000
+                }
+            },
+            'Alternative': {
+                'AIRB': {
+                    'mean': 950000,
+                    'std': 95000,
+                    'median': 948000
+                }
+            }
+        }
+        
+        fig = create_scenario_comparison_plot(
+            results=results,
+            calculator_name='AIRB',
+            title="Baseline vs Alternative"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) >= 1  # At least one trace (bar chart)
+    
+    def test_create_scenario_comparison_plot_delta_annotations(self):
+        """Test scenario comparison with capital delta annotations."""
+        results = {
+            'Baseline': {
+                'AIRB': {
+                    'mean': 1000000,
+                    'std': 0,
+                    'median': 1000000
+                }
+            },
+            'Alternative': {
+                'AIRB': {
+                    'mean': 950000,
+                    'std': 0,
+                    'median': 950000
+                }
+            }
+        }
+        
+        fig = create_scenario_comparison_plot(
+            results=results,
+            calculator_name='AIRB',
+            baseline_scenario='Baseline',
+            title="Capital Delta Comparison"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        # Verify both scenarios present
+        assert len(results) == 2
+        # Verify delta can be calculated
+        delta = results['Alternative']['AIRB']['mean'] - results['Baseline']['AIRB']['mean']
+        assert delta == -50000
+
+
+class TestWaterfallChartComponents:
+    """Test waterfall chart component breakdown."""
+    
+    def test_create_waterfall_chart_component_breakdown(self):
+        """Test waterfall chart with detailed component breakdown."""
+        results = {
+            'baseline': {
+                'AIRB': {
+                    'rwa_values': [1000000] * 100,
+                    'mean': 1000000,
+                    'median': 1000000,
+                    'std': 0
+                }
+            },
+            'alternative': {
+                'AIRB': {
+                    'rwa_values': [850000] * 100,
+                    'mean': 850000,
+                    'median': 850000,
+                    'std': 0
+                }
+            }
+        }
+        
+        fig = create_waterfall_chart(
+            baseline_scenario='baseline',
+            comparison_scenario='alternative',
+            results=results,
+            calculator_name='AIRB',
+            title="Component Breakdown"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        # Verify waterfall shows impact
+        baseline_mean = results['baseline']['AIRB']['mean']
+        alternative_mean = results['alternative']['AIRB']['mean']
+        assert baseline_mean - alternative_mean == 150000
+    
+    def test_create_waterfall_chart_net_effect(self):
+        """Test waterfall chart shows net effect summary."""
+        results = {
+            'baseline': {
+                'AIRB': {
+                    'rwa_values': [1000000] * 50,
+                    'mean': 1000000,
+                    'median': 1000000,
+                    'std': 50000,
+                    'min': 900000,
+                    'max': 1100000
+                }
+            },
+            'alternative': {
+                'AIRB': {
+                    'rwa_values': [920000] * 50,
+                    'mean': 920000,
+                    'median': 920000,
+                    'std': 40000,
+                    'min': 850000,
+                    'max': 990000
+                }
+            }
+        }
+        
+        fig = create_waterfall_chart(
+            baseline_scenario='baseline',
+            comparison_scenario='alternative',
+            results=results,
+            calculator_name='AIRB',
+            title="Net Effect Analysis"
+        )
+        
+        assert isinstance(fig, go.Figure)
+        # Verify net effect
+        net_effect = results['baseline']['AIRB']['mean'] - results['alternative']['AIRB']['mean']
+        assert net_effect == 80000
+

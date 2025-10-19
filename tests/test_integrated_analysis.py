@@ -5,6 +5,7 @@ Priority 1: Critical - Core Functionality
 """
 
 import pytest
+import pandas as pd
 from irbstudio.engine.integrated_analysis import IntegratedAnalysis
 from irbstudio.simulation.portfolio_simulator import PortfolioSimulator
 from irbstudio.engine.mortgage.airb_calculator import AIRBMortgageCalculator
@@ -421,3 +422,37 @@ class TestIntegratedAnalysisRunScenarioVariations:
         log_text = caplog.text
         assert '[CHECKPOINT]' in log_text or 'Starting scenario' in log_text
         assert '[PROGRESS]' in log_text or 'Completed' in log_text
+    
+    def test_integrated_analysis_run_scenario_process_all_dates(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test run_scenario with process_all_dates parameter (verifies parameter is accepted)."""
+        analysis = IntegratedAnalysis()
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('Test', simulator, n_iterations=3)
+        
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Run with process_all_dates=True (verifies parameter is accepted)
+        # For single-date portfolio, behavior should be same as False
+        results = analysis.run_scenario('Test', process_all_dates=True)
+        
+        assert results is not None
+        assert 'calculator_results' in results
+        assert len(results['calculator_results']['AIRB']['results']) == 3

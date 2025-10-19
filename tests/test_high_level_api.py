@@ -44,6 +44,46 @@ class TestLoadConfig:
         
         with pytest.raises(yaml.YAMLError):
             load_config(config_file)
+    
+    def test_load_config_returns_config_object(self, tmp_path, sample_config_dict):
+        """Test load_config() returns Config instance."""
+        config_file = tmp_path / "config.yaml"
+        
+        with open(config_file, 'w') as f:
+            yaml.dump(sample_config_dict, f)
+        
+        config = load_config(config_file)
+        
+        # Verify it's a Config instance
+        assert isinstance(config, Config)
+        assert hasattr(config, 'scenarios')
+        assert hasattr(config, 'regulatory')
+        assert hasattr(config, 'column_mapping')
+    
+    def test_load_config_validates_schema(self, tmp_path):
+        """Test load_config() triggers Pydantic validation."""
+        config_file = tmp_path / "invalid_config.yaml"
+        
+        # Create config with invalid pd_auc (> 1.0)
+        invalid_config = {
+            'scenarios': [
+                {
+                    'name': 'test',
+                    'pd_auc': 1.5,  # Invalid - must be < 1.0
+                    'portfolio_default_rate': 0.03,
+                    'lgd': 0.25
+                }
+            ],
+            'calculators': ['AIRB']
+        }
+        
+        with open(config_file, 'w') as f:
+            yaml.dump(invalid_config, f)
+        
+        # Should raise validation error
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            load_config(config_file)
 
 
 class TestRunAnalysisBasic:

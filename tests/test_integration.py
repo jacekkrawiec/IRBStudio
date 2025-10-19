@@ -602,3 +602,193 @@ class TestAdvancedIntegration:
 # - Scenario comparison: 2 tests
 # - Advanced integration: 3 tests (NEW)
 # Total: 13 integration tests
+
+
+class TestAdditionalIntegration:
+    """Additional integration tests."""
+    
+    def test_e2e_reproducible_results(self, small_portfolio_df, score_to_rating_bounds, airb_params):
+        """Test reproducible end-to-end results with same seed."""
+        # Create analysis
+        analysis1 = IntegratedAnalysis()
+        
+        simulator1 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        calculator1 = AIRBMortgageCalculator(airb_params)
+        analysis1.add_calculator('AIRB', calculator1)
+        analysis1.add_scenario('Test', simulator1, n_iterations=10)
+        
+        # Run with seed
+        results1 = analysis1.run_scenario('Test', random_seed=42)
+        
+        # Create second analysis with same setup
+        analysis2 = IntegratedAnalysis()
+        
+        simulator2 = PortfolioSimulator(
+            portfolio_df=small_portfolio_df.copy(),
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        calculator2 = AIRBMortgageCalculator(airb_params)
+        analysis2.add_calculator('AIRB', calculator2)
+        analysis2.add_scenario('Test', simulator2, n_iterations=10)
+        
+        # Run with same seed
+        results2 = analysis2.run_scenario('Test', random_seed=42)
+        
+        # Results should be identical
+        rwa1 = [r.summary['total_rwa'] for r in results1['calculator_results']['AIRB']['results']]
+        rwa2 = [r.summary['total_rwa'] for r in results2['calculator_results']['AIRB']['results']]
+        
+        assert len(rwa1) == len(rwa2)
+        assert np.allclose(rwa1, rwa2, rtol=1e-10)
+    
+    def test_integration_scenario_comparison_visualization(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test scenario comparison with visualization integration."""
+        from irbstudio.reporting.dashboard import create_scenario_comparison_plot
+        
+        analysis = IntegratedAnalysis()
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create baseline scenario
+        simulator_baseline = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('baseline', simulator_baseline, n_iterations=20)
+        
+        # Create alternative scenario (same data for simplicity)
+        simulator_alt = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('alternative', simulator_alt, n_iterations=20)
+        
+        # Run scenarios
+        results_baseline = analysis.run_scenario('baseline', random_seed=42)
+        results_alt = analysis.run_scenario('alternative', random_seed=43)
+        
+        # Prepare data for visualization
+        rwa_baseline = [r.summary['total_rwa'] for r in results_baseline['calculator_results']['AIRB']['results']]
+        rwa_alt = [r.summary['total_rwa'] for r in results_alt['calculator_results']['AIRB']['results']]
+        
+        viz_results = {
+            'baseline': {
+                'AIRB': {
+                    'mean': np.mean(rwa_baseline),
+                    'std': np.std(rwa_baseline),
+                    'median': np.median(rwa_baseline)
+                }
+            },
+            'alternative': {
+                'AIRB': {
+                    'mean': np.mean(rwa_alt),
+                    'std': np.std(rwa_alt),
+                    'median': np.median(rwa_alt)
+                }
+            }
+        }
+        
+        # Create comparison plot
+        fig = create_scenario_comparison_plot(
+            results=viz_results,
+            calculator_name='AIRB',
+            title="Scenario Comparison"
+        )
+        
+        assert fig is not None
+        assert len(fig.data) >= 1
+    
+    def test_e2e_custom_configuration(self, small_portfolio_df, score_to_rating_bounds):
+        """Test end-to-end workflow with custom configuration."""
+        # Create custom config
+        config = Config(
+            scenarios=[
+                Scenario(
+                    name='baseline',
+                    pd_auc=0.72,
+                    portfolio_default_rate=0.025,
+                    lgd=0.30,
+                    new_loan_rate=0.10
+                )
+            ],
+            calculators=['AIRB'],
+            memory_efficient=False
+        )
+        
+        # Create analysis with config
+        analysis = IntegratedAnalysis()
+        
+        # Add calculator based on config
+        calculator = AIRBMortgageCalculator(
+            regulatory_params={
+                'lgd': config.scenarios[0].lgd,
+                'maturity_years': 2.5,
+                'scaling_factor': 1.06
+            }
+        )
+        analysis.add_calculator('AIRB', calculator)
+        
+        # Create simulator with config parameters
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        # Use custom iteration count
+        n_iterations = 15
+        analysis.add_scenario('baseline', simulator, n_iterations=n_iterations)
+        
+        # Run with seed
+        results = analysis.run_scenario('baseline', random_seed=42)
+        
+        assert results is not None
+        assert len(results['calculator_results']['AIRB']['results']) == n_iterations
+        # Verify config was used correctly
+        assert config.scenarios[0].lgd == 0.30

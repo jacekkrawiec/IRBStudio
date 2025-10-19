@@ -187,6 +187,50 @@ class TestPrepareSimulation:
         # Should handle missing application_start_date
         simulator.prepare_simulation()
         assert True
+    
+    def test_prepare_simulation_all_new_clients(self, small_portfolio_df, score_to_rating_bounds):
+        """Test prepare_simulation with portfolio with no historical overlap."""
+        # Create portfolio with all new loans (all dates >= application_start_date)
+        new_df = small_portfolio_df.copy()
+        new_df['reporting_date'] = pd.to_datetime('2024-06-01')
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=new_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        # Should raise error because no historical data
+        with pytest.raises(ValueError, match="Historical data is empty"):
+            simulator.prepare_simulation()
+    
+    def test_prepare_simulation_all_existing_clients(self, small_portfolio_df, score_to_rating_bounds):
+        """Test prepare_simulation with portfolio with all existing clients."""
+        # Create portfolio with all historical loans (all dates < application_start_date)
+        hist_df = small_portfolio_df.copy()
+        hist_df['reporting_date'] = pd.to_datetime('2023-06-01')
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=hist_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        # Should raise error because no application data
+        with pytest.raises(ValueError, match="No application data found"):
+            simulator.prepare_simulation()
 
 
 class TestSimulateOnce:
@@ -435,3 +479,94 @@ class TestBetaMixtureModel:
                     assert (valid_scores >= 0).all(), f"Scores in {col} should be >= 0"
                     assert (valid_scores <= 1).all() or (valid_scores <= 850).all(), \
                         f"Scores in {col} should be in valid range"
+
+
+class TestAdditionalSimulationFeatures:
+    """Additional simulation feature tests."""
+    
+    def test_portfolio_segmentation_dates(self, small_portfolio_df, score_to_rating_bounds):
+        """Test portfolio is correctly segmented by dates."""
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        simulator.prepare_simulation()
+        
+        # Verify segmentation
+        assert hasattr(simulator, 'historical_df')
+        assert hasattr(simulator, 'application_df')
+        
+        # Both should be DataFrames
+        assert isinstance(simulator.historical_df, pd.DataFrame)
+        assert isinstance(simulator.application_df, pd.DataFrame)
+        
+        # Historical should be before application_start_date
+        if not simulator.historical_df.empty:
+            hist_dates = pd.to_datetime(simulator.historical_df['reporting_date'])
+            assert (hist_dates < pd.Timestamp('2024-01-01')).all()
+    
+    def test_default_handling_in_simulation(self, small_portfolio_df, score_to_rating_bounds):
+        """Test that defaulted loans are handled separately."""
+        # Create portfolio with defaults spread across dates
+        portfolio = small_portfolio_df.copy()
+        
+        # Mark loans as defaults (but not in historical data to avoid fitting issues)
+        # Only mark in recent dates
+        recent_dates = portfolio['reporting_date'].sort_values().unique()[-5:]
+        recent_mask = portfolio['reporting_date'].isin(recent_dates)
+        portfolio.loc[recent_mask & (portfolio.index % 10 == 0), 'default_flag'] = 1
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=portfolio,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        simulator.prepare_simulation()
+        
+        # Should have defaulted_df
+        assert hasattr(simulator, 'defaulted_df')
+        assert isinstance(simulator.defaulted_df, pd.DataFrame)
+        
+        # Defaulted loans should be separated
+        if not simulator.defaulted_df.empty:
+            assert (simulator.defaulted_df['default_flag'] == 1).all()
+    
+    def test_score_to_rating_mapping(self, small_portfolio_df, score_to_rating_bounds):
+        """Test score to rating mapping is correctly applied."""
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        simulator.prepare_simulation()
+        simulated_df = simulator.simulate_once(random_seed=42)
+        
+        # Check that simulated ratings are valid
+        if 'simulated_rating' in simulated_df.columns:
+            valid_ratings = set(score_to_rating_bounds.keys())
+            simulated_ratings = set(simulated_df['simulated_rating'].dropna())
+            
+            # All simulated ratings should be from valid set
+            assert simulated_ratings.issubset(valid_ratings)
