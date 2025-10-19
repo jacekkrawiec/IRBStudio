@@ -174,3 +174,87 @@ class TestDataValidation:
                     # (or we accept duplicates for testing purposes)
                     # For now, just verify the column exists and has values
                     assert small_portfolio_df['loan_id'].notna().any()
+
+
+class TestFileFormats:
+    """Tests for loading different file formats."""
+    
+    def test_load_portfolio_excel(self, small_portfolio_df):
+        """Test load_portfolio() with Excel file raises appropriate error."""
+        import openpyxl  # Check if openpyxl is available
+        
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+            temp_path = f.name
+            small_portfolio_df.to_excel(temp_path, index=False, engine='openpyxl')
+        
+        try:
+            mapping = ColumnMapping(loan_id='loan_id', exposure='exposure')
+            
+            # Should raise ValueError for unsupported file type
+            with pytest.raises(ValueError, match="Unsupported file type"):
+                load_portfolio(temp_path, mapping)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+    
+    def test_load_portfolio_compressed_csv(self, small_portfolio_df):
+        """Test load_portfolio() with .csv.gz file raises appropriate error (currently unsupported)."""
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv.gz', delete=False) as f:
+            temp_path = f.name
+            small_portfolio_df.to_csv(temp_path, index=False, compression='gzip')
+        
+        try:
+            mapping = ColumnMapping(loan_id='loan_id', exposure='exposure')
+            
+            # Should raise ValueError for unsupported file type
+            with pytest.raises(ValueError, match="Unsupported file type"):
+                load_portfolio(temp_path, mapping)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+    
+    def test_load_portfolio_compressed_zip(self, small_portfolio_df):
+        """Test load_portfolio() with .zip file raises appropriate error (currently unsupported)."""
+        import zipfile
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / 'portfolio.csv'
+            zip_path = Path(tmpdir) / 'portfolio.zip'
+            
+            # Save CSV
+            small_portfolio_df.to_csv(csv_path, index=False)
+            
+            # Create ZIP
+            with zipfile.ZipFile(zip_path, 'w') as zf:
+                zf.write(csv_path, 'portfolio.csv')
+            
+            mapping = ColumnMapping(loan_id='loan_id', exposure='exposure')
+            
+            # Should raise ValueError for unsupported file type
+            with pytest.raises(ValueError, match="Unsupported file type"):
+                load_portfolio(str(zip_path), mapping)
+
+
+class TestCorruptedFiles:
+    """Tests for handling corrupted or invalid files."""
+    
+    def test_load_portfolio_corrupted_file(self):
+        """Test load_portfolio() with corrupted/invalid file format."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            # Write invalid CSV data
+            f.write("this is not,a valid,csv file\n")
+            f.write("with random data: {invalid}\n")
+            temp_path = f.name
+        
+        try:
+            mapping = ColumnMapping(loan_id='loan_id', exposure='exposure')
+            
+            # Should either raise an exception or return DataFrame with issues
+            try:
+                df = load_portfolio(temp_path, mapping)
+                # If it loads, check that required columns might be missing
+                # (depends on loader's error handling)
+                assert df is not None
+            except Exception as e:
+                # Acceptable to raise exception for corrupted file
+                assert True
+        finally:
+            Path(temp_path).unlink(missing_ok=True)

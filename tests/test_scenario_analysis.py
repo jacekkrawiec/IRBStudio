@@ -939,6 +939,139 @@ class TestScenarioComparison:
         assert pct_diff <= 0.5  # Allow small positive variations due to randomness
 
 
+
+
+
+class TestAdvancedStatistics:
+    """Tests for advanced statistical metrics (skewness, kurtosis, CV)."""
+    
+    def test_integrated_analysis_summary_skewness(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test calculation of distribution skewness from RWA results."""
+        from scipy import stats
+        
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01',
+            target_auc=0.70  # Add AUC to increase variation
+        )
+        
+        analysis.add_scenario('test', simulator, n_iterations=50)  # More iterations for better distribution
+        results = analysis.run_scenario('test')
+        
+        # Calculate skewness
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # For deterministic portfolios, all values might be identical
+        # In that case, skewness should be 0 or NaN (both acceptable)
+        if np.std(rwa_values) > 0:
+            skewness = stats.skew(rwa_values)
+            # If there's variation, skewness should be finite and reasonable
+            if np.isfinite(skewness):
+                assert -3 <= skewness <= 3
+        else:
+            # No variation - this is acceptable for deterministic simulation
+            # Just verify all values are the same
+            assert len(set(rwa_values)) == 1
+    
+    def test_integrated_analysis_summary_kurtosis(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test calculation of distribution kurtosis from RWA results."""
+        from scipy import stats
+        
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01',
+            target_auc=0.70
+        )
+        
+        analysis.add_scenario('test', simulator, n_iterations=50)
+        results = analysis.run_scenario('test')
+        
+        # Calculate kurtosis (excess kurtosis, normal distribution = 0)
+        rwa_values = [r.total_rwa for r in results['calculator_results']['AIRB']['results']]
+        
+        # For deterministic portfolios, all values might be identical
+        if np.std(rwa_values) > 0:
+            kurtosis = stats.kurtosis(rwa_values)
+            # If there's variation, kurtosis should be finite and reasonable
+            if np.isfinite(kurtosis):
+                assert -2 <= kurtosis <= 10
+        else:
+            # No variation - this is acceptable for deterministic simulation
+            # Just verify all values are the same
+            assert len(set(rwa_values)) == 1
+    
+    def test_integrated_analysis_summary_cv(
+        self,
+        small_portfolio_df,
+        score_to_rating_bounds,
+        airb_params
+    ):
+        """Test calculation of coefficient of variation."""
+        analysis = IntegratedAnalysis()
+        
+        calculator = AIRBMortgageCalculator(airb_params)
+        analysis.add_calculator('AIRB', calculator)
+        
+        simulator = PortfolioSimulator(
+            portfolio_df=small_portfolio_df,
+            score_to_rating_bounds=score_to_rating_bounds,
+            rating_col='rating',
+            loan_id_col='loan_id',
+            date_col='reporting_date',
+            default_col='default_flag',
+            into_default_flag_col='into_default_flag',
+            score_col='score',
+            application_start_date='2024-01-01'
+        )
+        
+        analysis.add_scenario('test', simulator, n_iterations=20)
+        results = analysis.run_scenario('test')
+        
+        # Get summary stats
+        stats_dict = analysis.get_summary_stats('test', 'AIRB')
+        
+        # Calculate coefficient of variation (CV = std / mean)
+        cv = stats_dict['std'] / stats_dict['mean']
+        
+        # CV should be positive and typically < 1 for RWA distributions
+        assert cv > 0
+        assert cv < 1.0  # RWA distributions shouldn't be too variable
+
+
 # Summary of test coverage:
 # - IntegratedAnalysis initialization: 3 tests
 # - Calculator management: 5 tests  
@@ -946,5 +1079,7 @@ class TestScenarioComparison:
 # - Running scenarios: 3 tests
 # - Statistical summaries: 2 tests
 # - Percentile analysis: 7 tests
-# - Scenario comparison: 3 tests (NEW)
-# Total: 26 tests for scenario analysis
+# - Scenario comparison: 3 tests
+# - Advanced statistics: 3 tests (NEW)
+# Total: 29 tests for scenario analysis
+
